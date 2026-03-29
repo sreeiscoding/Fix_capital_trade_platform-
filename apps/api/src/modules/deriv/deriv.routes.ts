@@ -1,4 +1,4 @@
-﻿import type { FastifyInstance } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { env } from "../../config/env.js";
 import { ensureAuth } from "../auth/auth.routes.js";
@@ -8,8 +8,13 @@ import {
   listDerivAccounts,
   unlinkDerivAccount
 } from "./deriv-oauth.service.js";
+import { getLiveMarketQuotes } from "./market-data.service.js";
 
 export async function derivRoutes(app: FastifyInstance) {
+  app.get("/market-quotes", async () => {
+    return await getLiveMarketQuotes();
+  });
+
   app.get("/accounts", { preHandler: [ensureAuth(app)] }, async (request) => {
     return {
       accounts: await listDerivAccounts(request.authUser!.id)

@@ -2,11 +2,26 @@
 
 import type { Route } from "next";
 import type { LucideIcon } from "lucide-react";
-import { ArrowRightLeft, Bot, BrainCircuit, MoveRight, ShieldCheck, Sparkles, TrendingUp, TriangleAlert } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowRightLeft,
+  ArrowUpRight,
+  Bot,
+  BrainCircuit,
+  Minus,
+  MoveRight,
+  ShieldCheck,
+  Sparkles,
+  TrendingUp,
+  TriangleAlert
+} from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { apiRequest } from "@/lib/api";
 import { useAuth } from "@/lib/auth-store";
+import { fallbackMarketQuotes, type MarketQuote } from "@/lib/market-quotes";
 
 const features: Array<{ icon: LucideIcon; label: string; delayClass: string }> = [
   { icon: ArrowRightLeft, label: "Verified master trader leaderboards", delayClass: "reveal-delay-2" },
@@ -15,16 +30,135 @@ const features: Array<{ icon: LucideIcon; label: string; delayClass: string }> =
   { icon: BrainCircuit, label: "AI-assisted signals, monitoring, and alerts", delayClass: "reveal-delay-5" }
 ];
 
-const marketQuotes = [
-  { symbol: "EUR/USD", ask: "1.08426", bid: "1.08411" },
-  { symbol: "XAU/USD", ask: "3068.42", bid: "3067.91" },
-  { symbol: "GBP/JPY", ask: "198.364", bid: "198.331" },
-  { symbol: "R_100", ask: "5123.84", bid: "5123.12" }
-] as const;
+type QuoteFeedStatus = "loading" | "live" | "fallback";
+type PriceDirection = "up" | "down" | "flat";
+type QuoteDirectionMap = Record<string, { ask: PriceDirection; bid: PriceDirection }>;
+
+type MarketQuoteResponse = {
+  source: "live" | "fallback";
+  quotes: MarketQuote[];
+};
+
+function getPriceDirection(previousValue: string | undefined, nextValue: string): PriceDirection {
+  const previous = Number.parseFloat(previousValue ?? "");
+  const next = Number.parseFloat(nextValue);
+
+  if (!Number.isFinite(previous) || !Number.isFinite(next)) {
+    return "flat";
+  }
+
+  if (next > previous) {
+    return "up";
+  }
+
+  if (next < previous) {
+    return "down";
+  }
+
+  return "flat";
+}
+
+function getDirectionPresentation(direction: PriceDirection) {
+  if (direction === "up") {
+    return {
+      icon: ArrowUpRight,
+      className: "text-success"
+    };
+  }
+
+  if (direction === "down") {
+    return {
+      icon: ArrowDownRight,
+      className: "text-destructive"
+    };
+  }
+
+  return {
+    icon: Minus,
+    className: "text-slate-500"
+  };
+}
 
 export function HeroSection() {
   const router = useRouter();
   const { user } = useAuth();
+  const previousQuotesRef = useRef<Record<string, MarketQuote>>({});
+  const [marketQuotes, setMarketQuotes] = useState<MarketQuote[]>(fallbackMarketQuotes);
+  const [quoteDirections, setQuoteDirections] = useState<QuoteDirectionMap>({});
+  const [quoteFeedStatus, setQuoteFeedStatus] = useState<QuoteFeedStatus>("loading");
+
+  const lastUpdatedLabel = useMemo(() => {
+    const latest = marketQuotes.reduce<string>((current, quote) => {
+      if (!current) {
+        return quote.updatedAt;
+      }
+
+      return new Date(quote.updatedAt).getTime() > new Date(current).getTime() ? quote.updatedAt : current;
+    }, "");
+
+    if (!latest || latest === new Date(0).toISOString()) {
+      return quoteFeedStatus === "loading" ? "Connecting to market feed" : "Waiting for first update";
+    }
+
+    const formattedTime = new Date(latest).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+
+    if (quoteFeedStatus === "live") {
+      return `Live ${formattedTime}`;
+    }
+
+    if (quoteFeedStatus === "fallback") {
+      return `Indicative ${formattedTime}`;
+    }
+
+    return `Refreshing ${formattedTime}`;
+  }, [marketQuotes, quoteFeedStatus]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadQuotes = async () => {
+      try {
+        const response = await apiRequest<MarketQuoteResponse>("/api/v1/deriv/market-quotes");
+        if (!active || response.quotes.length === 0) {
+          return;
+        }
+
+        const nextDirections = response.quotes.reduce<QuoteDirectionMap>((accumulator, quote) => {
+          const previousQuote = previousQuotesRef.current[quote.symbol];
+          accumulator[quote.symbol] = {
+            ask: getPriceDirection(previousQuote?.ask, quote.ask),
+            bid: getPriceDirection(previousQuote?.bid, quote.bid)
+          };
+          return accumulator;
+        }, {});
+
+        previousQuotesRef.current = Object.fromEntries(response.quotes.map((quote) => [quote.symbol, quote]));
+        setQuoteDirections(nextDirections);
+        setMarketQuotes(response.quotes);
+        setQuoteFeedStatus(response.source);
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setQuoteFeedStatus("fallback");
+      }
+    };
+
+    void loadQuotes();
+    const interval = window.setInterval(() => {
+      void loadQuotes();
+    }, 3000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const handleLaunchWorkspace = () => {
     const nextRoute: Route = user ? "/dashboard" : "/auth/login";
@@ -109,37 +243,63 @@ export function HeroSection() {
           <div className="panel-hover reveal-up reveal-delay-3 rounded-3xl border border-border/70 bg-slate-950/35 p-4">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="descriptive-copy text-xs uppercase tracking-[0.24em] text-slate-400">Daily market snapshot</p>
+                <p className="descriptive-copy text-xs uppercase tracking-[0.24em] text-slate-400">Market snapshot</p>
                 <h3 className="mt-2 text-lg font-semibold text-white">Ask and bid prices</h3>
               </div>
               <span className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 font-secondary text-xs text-accent">
-                Today
+                {lastUpdatedLabel}
               </span>
             </div>
+            {quoteFeedStatus === "fallback" ? (
+              <div className="mb-4 rounded-2xl border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
+                Live Deriv ticks are temporarily unavailable, so this board is showing an updating indicative snapshot until the feed resumes.
+              </div>
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-2">
-              {marketQuotes.map((quote, index) => (
-                <div
-                  key={quote.symbol}
-                  className={`panel-muted reveal-up reveal-delay-${Math.min(index + 1, 5)} space-y-3 p-4`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold text-white">{quote.symbol}</p>
-                    <span className="rounded-full bg-success/10 px-2 py-1 font-secondary text-[11px] text-success">
-                      Live-ready
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Ask</p>
-                      <p className="price-copy mt-1 text-base font-semibold text-white">{quote.ask}</p>
+              {marketQuotes.map((quote, index) => {
+                const askDirection = quoteDirections[quote.symbol]?.ask ?? "flat";
+                const bidDirection = quoteDirections[quote.symbol]?.bid ?? "flat";
+                const askPresentation = getDirectionPresentation(askDirection);
+                const bidPresentation = getDirectionPresentation(bidDirection);
+                const AskIcon = askPresentation.icon;
+                const BidIcon = bidPresentation.icon;
+
+                return (
+                  <div
+                    key={quote.symbol}
+                    className={`panel-muted reveal-up reveal-delay-${Math.min(index + 1, 5)} space-y-3 p-4`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-semibold text-white">{quote.label}</p>
+                      <span className={`rounded-full px-2 py-1 font-secondary text-[11px] ${
+                        quoteFeedStatus === "live"
+                          ? "bg-success/10 text-success"
+                          : quoteFeedStatus === "loading"
+                            ? "bg-accent/10 text-accent"
+                            : "bg-warning/10 text-warning"
+                      }`}>
+                        {quoteFeedStatus === "live" ? "Live" : quoteFeedStatus === "loading" ? "Loading" : "Fallback"}
+                      </span>
                     </div>
-                    <div>
-                      <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Bid</p>
-                      <p className="price-copy mt-1 text-base font-semibold text-white">{quote.bid}</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Ask</p>
+                        <div className={`price-copy mt-1 flex items-center gap-2 text-base font-semibold ${askPresentation.className}`}>
+                          <AskIcon className="h-4 w-4" />
+                          <span>{quote.ask}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Bid</p>
+                        <div className={`price-copy mt-1 flex items-center gap-2 text-base font-semibold ${bidPresentation.className}`}>
+                          <BidIcon className="h-4 w-4" />
+                          <span>{quote.bid}</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

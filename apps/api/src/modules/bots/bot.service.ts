@@ -1,11 +1,17 @@
-﻿import { BotStatus } from "@prisma/client";
+import { BotStatus, type Prisma } from "@prisma/client";
 import { Queue } from "bullmq";
 import { prisma } from "../../lib/prisma.js";
 import { redis } from "../../lib/redis.js";
 
-export const botQueue = new Queue("bot-execution", {
-  connection: redis
-});
+let botQueue: Queue | null = null;
+
+function getBotQueue() {
+  botQueue ??= new Queue("bot-execution", {
+    connection: redis
+  });
+
+  return botQueue;
+}
 
 const strategyTemplates = [
   {
@@ -51,6 +57,8 @@ export async function saveBot(userId: string, input: {
   riskPerTradePct: number;
   config: Record<string, unknown>;
 }) {
+  const config = input.config as Prisma.InputJsonValue;
+
   if (input.id) {
     const existing = await prisma.botConfig.findFirst({
       where: { id: input.id, userId }
@@ -67,7 +75,7 @@ export async function saveBot(userId: string, input: {
         templateKey: input.templateKey,
         symbol: input.symbol,
         riskPerTradePct: input.riskPerTradePct,
-        config: input.config
+        config
       }
     });
   }
@@ -79,7 +87,7 @@ export async function saveBot(userId: string, input: {
       templateKey: input.templateKey,
       symbol: input.symbol,
       riskPerTradePct: input.riskPerTradePct,
-      config: input.config
+      config
     }
   });
 }
@@ -102,7 +110,7 @@ export async function updateBotStatus(userId: string, botId: string, status: Bot
   });
 
   if (status === BotStatus.RUNNING) {
-    await botQueue.add("run-bot", {
+    await getBotQueue().add("run-bot", {
       botId
     });
   }

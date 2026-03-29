@@ -4,6 +4,8 @@ import { env } from "../../config/env.js";
 type MarketQuoteConfig = {
   symbol: string;
   label: string;
+  fallbackMid: number;
+  decimals: number;
 };
 
 type DerivTickMessage = {
@@ -28,19 +30,24 @@ export type MarketQuoteSnapshot = {
   updatedAt: string;
 };
 
+export type MarketQuoteFeed = {
+  source: "live" | "fallback";
+  quotes: MarketQuoteSnapshot[];
+};
+
 const DEFAULT_MARKETS: readonly MarketQuoteConfig[] = [
-  { symbol: "frxEURUSD", label: "EUR/USD" },
-  { symbol: "frxXAUUSD", label: "XAU/USD" },
-  { symbol: "frxGBPJPY", label: "GBP/JPY" },
-  { symbol: "R_100", label: "R_100" }
+  { symbol: "frxEURUSD", label: "EUR/USD", fallbackMid: 1.08418, decimals: 5 },
+  { symbol: "frxXAUUSD", label: "XAU/USD", fallbackMid: 3068.16, decimals: 2 },
+  { symbol: "frxGBPJPY", label: "GBP/JPY", fallbackMid: 198.348, decimals: 3 },
+  { symbol: "R_100", label: "R_100", fallbackMid: 5123.48, decimals: 2 }
 ] as const;
 
-const CACHE_TTL_MS = 15000;
+const LIVE_CACHE_TTL_MS = 1500;
 
 let cache:
   | {
       expiresAt: number;
-      data: MarketQuoteSnapshot[];
+      data: MarketQuoteFeed;
     }
   | null = null;
 
@@ -62,19 +69,39 @@ function inferSpread(symbol: string, pipSize: number) {
   return pipUnit * 4;
 }
 
+function hashSymbol(symbol: string) {
+  return Array.from(symbol).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+}
+
+function buildFallbackQuotes() {
+  const now = Date.now();
+
+  return DEFAULT_MARKETS.map((market) => {
+    const seed = hashSymbol(market.symbol);
+    const wave = Math.sin(now / 2500 + seed) * Math.max(market.fallbackMid * 0.00018, 0.025);
+    const drift = Math.cos(now / 4200 + seed / 5) * Math.max(market.fallbackMid * 0.00007, 0.012);
+    const mid = market.fallbackMid + wave + drift;
+    const spread = inferSpread(market.symbol, market.decimals);
+    const ask = mid + spread / 2;
+    const bid = mid - spread / 2;
+
+    return {
+      symbol: market.symbol,
+      label: market.label,
+      ask: formatWithPrecision(ask, market.decimals),
+      bid: formatWithPrecision(bid, market.decimals),
+      mid: formatWithPrecision(mid, market.decimals),
+      updatedAt: new Date(now).toISOString()
+    };
+  });
+}
+
 async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
   return await new Promise<MarketQuoteSnapshot[]>((resolve, reject) => {
     const connection = new WebSocket(`${env.DERIV_WS_URL}?app_id=${env.DERIV_APP_ID}`);
     const quotes = new Map<string, MarketQuoteSnapshot>();
     const timeout = setTimeout(() => {
-      connection.close();
-      if (quotes.size > 0) {
-        resolve(markets.flatMap((market) => {
-          const quote = quotes.get(market.symbol);
-          return quote ? [quote] : [];
-        }));
-        return;
-      }
+      cleanup();
       reject(new Error("Timed out while fetching live market quotes"));
     }, 7000);
 
@@ -111,7 +138,7 @@ async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
           return;
         }
 
-        const pipSize = message.tick.pip_size ?? 2;
+        const pipSize = message.tick.pip_size ?? market.decimals;
         const spread = inferSpread(market.symbol, pipSize);
         const ask = message.tick.quote + spread / 2;
         const bid = message.tick.quote - spread / 2;
@@ -147,15 +174,26 @@ async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
   });
 }
 
-export async function getLiveMarketQuotes() {
+export async function getLiveMarketQuotes(): Promise<MarketQuoteFeed> {
   if (cache && cache.expiresAt > Date.now()) {
     return cache.data;
   }
 
-  const data = await fetchDerivTicks(DEFAULT_MARKETS);
-  cache = {
-    data,
-    expiresAt: Date.now() + CACHE_TTL_MS
-  };
-  return data;
+  try {
+    const quotes = await fetchDerivTicks(DEFAULT_MARKETS);
+    const data: MarketQuoteFeed = {
+      source: "live",
+      quotes
+    };
+    cache = {
+      data,
+      expiresAt: Date.now() + LIVE_CACHE_TTL_MS
+    };
+    return data;
+  } catch (error) {
+    return {
+      source: "fallback",
+      quotes: buildFallbackQuotes()
+    };
+  }
 }

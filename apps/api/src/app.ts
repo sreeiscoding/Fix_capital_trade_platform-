@@ -1,4 +1,4 @@
-﻿import Fastify from "fastify";
+import Fastify from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
@@ -9,6 +9,15 @@ import { env } from "./config/env.js";
 import { prisma } from "./lib/prisma.js";
 import { redis } from "./lib/redis.js";
 import { registerRoutes } from "./routes/index.js";
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+    })
+  ]);
+}
 
 export async function buildApp() {
   const app = Fastify({
@@ -39,8 +48,18 @@ export async function buildApp() {
     }
   });
 
-  const subscriber = redis.duplicate();
-  io.adapter(createAdapter(redis, subscriber));
+  let subscriber: ReturnType<typeof redis.duplicate> | null = null;
+
+  try {
+    await withTimeout(redis.ping(), 1200, "Redis ping");
+    subscriber = redis.duplicate();
+    subscriber.on("error", () => {
+      app.log.warn("Socket.io Redis subscriber connection failed");
+    });
+    io.adapter(createAdapter(redis, subscriber));
+  } catch (error) {
+    app.log.warn({ error }, "Redis unavailable, using default in-memory socket adapter");
+  }
 
   io.use(async (socket, next) => {
     try {
@@ -76,9 +95,13 @@ export async function buildApp() {
   app.decorate("io", io);
 
   app.addHook("onClose", async () => {
-    await prisma.$disconnect();
-    await subscriber.quit();
-    await redis.quit();
+    await prisma.$disconnect().catch(() => undefined);
+    if (subscriber) {
+      await subscriber.quit().catch(() => undefined);
+    }
+    if (redis.status !== "end") {
+      await redis.quit().catch(() => undefined);
+    }
   });
 
   return app;

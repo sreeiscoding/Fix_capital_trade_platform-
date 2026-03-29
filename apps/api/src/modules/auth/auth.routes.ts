@@ -1,4 +1,4 @@
-﻿import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { registerUser, verifyUser } from "./auth.service.js";
 
@@ -13,6 +13,8 @@ const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8)
 });
+
+type AuthPayload = NonNullable<FastifyRequest["authUser"]>;
 
 export async function authRoutes(app: FastifyInstance) {
   app.post("/register", async (request, reply) => {
@@ -50,7 +52,7 @@ function ensureAuth(app: FastifyInstance) {
         return reply.code(401).send({ message: "Missing bearer token" });
       }
 
-      const payload = await app.jwt.verify<FastifyRequest["authUser"]>(token);
+      const payload = await app.jwt.verify<AuthPayload>(token);
       request.authUser = payload;
     } catch (error) {
       return reply.code(401).send({ message: "Unauthorized" });

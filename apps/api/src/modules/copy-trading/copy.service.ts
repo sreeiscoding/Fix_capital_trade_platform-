@@ -1,13 +1,19 @@
-﻿import { CopyRelationshipStatus } from "@prisma/client";
+import { CopyRelationshipStatus, type Prisma } from "@prisma/client";
 import { Queue } from "bullmq";
 import { getDecryptedDerivToken } from "../deriv/deriv-oauth.service.js";
 import { withDerivConnection } from "../../lib/deriv-client.js";
 import { prisma } from "../../lib/prisma.js";
 import { redis } from "../../lib/redis.js";
 
-export const copyQueue = new Queue("copy-replication", {
-  connection: redis
-});
+let copyQueue: Queue | null = null;
+
+function getCopyQueue() {
+  copyQueue ??= new Queue("copy-replication", {
+    connection: redis
+  });
+
+  return copyQueue;
+}
 
 type NormalizedTradeSignal = {
   masterId: string;
@@ -24,7 +30,13 @@ type NormalizedTradeSignal = {
 
 export async function listMasters() {
   const leaderboardKey = "leaderboard:masters";
-  const cached = await redis.zrevrange(leaderboardKey, 0, 9, "WITHSCORES");
+  let cached: string[] = [];
+
+  try {
+    cached = await redis.zrevrange(leaderboardKey, 0, 9, "WITHSCORES");
+  } catch {
+    cached = [];
+  }
 
   if (cached.length > 0) {
     const results = [] as Array<Record<string, unknown>>;
@@ -80,12 +92,16 @@ export async function listMasters() {
   });
 
   if (masters.length > 0) {
-    const pipeline = redis.multi();
-    masters.forEach((master) => {
-      pipeline.zadd(leaderboardKey, master.monthlyReturn, master.userId);
-    });
-    pipeline.expire(leaderboardKey, 300);
-    await pipeline.exec();
+    try {
+      const pipeline = redis.multi();
+      masters.forEach((master) => {
+        pipeline.zadd(leaderboardKey, master.monthlyReturn, master.userId);
+      });
+      pipeline.expire(leaderboardKey, 300);
+      await pipeline.exec();
+    } catch {
+      // Cache is optional in degraded mode.
+    }
   }
 
   return masters.map((master) => ({
@@ -197,7 +213,7 @@ export async function ingestMasterSignal(signal: NormalizedTradeSignal) {
       basis: signal.basis,
       barrier: signal.barrier,
       source: "COPY",
-      rawPayload: signal.rawPayload
+      rawPayload: signal.rawPayload as Prisma.InputJsonValue
     }
   });
 
@@ -214,7 +230,7 @@ export async function ingestMasterSignal(signal: NormalizedTradeSignal) {
 
   await Promise.all(
     followers.map((relationship) =>
-      copyQueue.add("replicate-trade", {
+      getCopyQueue().add("replicate-trade", {
         relationshipId: relationship.id,
         signal
       })
@@ -305,8 +321,8 @@ export async function executeReplicationJob(payload: {
         amount: requestedAmount,
         status: "FILLED",
         source: "COPY",
-        rawMasterPayload: payload.signal.rawPayload,
-        rawCopierPayload: buyResult
+        rawMasterPayload: payload.signal.rawPayload as Prisma.InputJsonValue,
+        rawCopierPayload: buyResult as Prisma.InputJsonValue
       }
     });
   });
@@ -328,7 +344,7 @@ async function logSkippedTrade(
       rawMasterPayload: {
         ...signal.rawPayload,
         skipReason: reason
-      }
+      } as Prisma.InputJsonValue
     }
   });
 }
