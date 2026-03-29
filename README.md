@@ -1,6 +1,6 @@
-﻿# AstroTrade
+﻿# FixCapital
 
-AstroTrade is a full-stack SaaS overlay for Deriv that focuses on copy trading, no-code automation, AI-assisted analytics, and live trading dashboards while keeping user funds and order execution inside each user's own Deriv account.
+FixCapital is a full-stack SaaS overlay for Deriv that focuses on copy trading, no-code automation, AI-assisted analytics, and live trading dashboards while keeping user funds and order execution inside each user's own Deriv account.
 
 ## Stack
 
