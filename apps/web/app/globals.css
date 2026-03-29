@@ -1,0 +1,193 @@
+@import "reactflow/dist/style.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 219 44% 7%;
+  --foreground: 210 18% 96%;
+  --card: 220 28% 10%;
+  --border: 218 24% 19%;
+  --muted: 217 18% 16%;
+  --accent: 160 65% 54%;
+  --success: 145 64% 52%;
+  --warning: 36 90% 58%;
+  --destructive: 0 74% 56%;
+}
+
+* {
+  @apply border-border;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-background text-foreground font-sans antialiased;
+  background-image:
+    radial-gradient(circle at top, rgba(42, 159, 255, 0.16), transparent 28%),
+    radial-gradient(circle at 80% 20%, rgba(87, 212, 168, 0.14), transparent 24%),
+    linear-gradient(180deg, rgba(8, 14, 24, 0.94), rgba(5, 10, 17, 1));
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.risk-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  border: 1px solid hsl(var(--warning) / 0.4);
+  background-color: hsl(var(--warning) / 0.1);
+  padding: 0.25rem 0.75rem;
+  font-family: var(--font-secondary), var(--font-mono), monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: hsl(var(--warning));
+}
+
+.panel {
+  @apply rounded-3xl border border-border/80 bg-card/80 shadow-glow backdrop-blur;
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.panel-muted {
+  @apply rounded-3xl border border-border/60 bg-muted/60 backdrop-blur;
+  transition: transform 220ms ease, border-color 220ms ease, background-color 220ms ease;
+}
+
+@media (hover: hover) {
+  .hover-lift:hover {
+    transform: translateY(-4px);
+  }
+
+  .panel-hover:hover {
+    transform: translateY(-3px);
+    border-color: rgba(87, 212, 168, 0.22);
+  }
+}
+
+.descriptive-copy {
+  font-family: var(--font-secondary), var(--font-mono), monospace;
+  letter-spacing: 0.01em;
+}
+
+.price-copy {
+  font-family: var(--font-secondary), var(--font-mono), monospace;
+  letter-spacing: -0.02em;
+}
+
+.reveal-up,
+.reveal-fade,
+.float-slow,
+.pulse-soft {
+  will-change: transform, opacity;
+}
+
+.reveal-up {
+  animation: revealUp 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.reveal-fade {
+  animation: revealFade 650ms ease both;
+}
+
+.reveal-delay-1 {
+  animation-delay: 90ms;
+}
+
+.reveal-delay-2 {
+  animation-delay: 170ms;
+}
+
+.reveal-delay-3 {
+  animation-delay: 250ms;
+}
+
+.reveal-delay-4 {
+  animation-delay: 330ms;
+}
+
+.reveal-delay-5 {
+  animation-delay: 410ms;
+}
+
+.float-slow {
+  animation: floatSlow 6.5s ease-in-out infinite;
+}
+
+.pulse-soft {
+  animation: pulseSoft 3.2s ease-in-out infinite;
+}
+
+@keyframes revealUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes revealFade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes floatSlow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes pulseSoft {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(87, 212, 168, 0.12);
+  }
+
+  50% {
+    opacity: 0.94;
+    box-shadow: 0 0 0 10px rgba(87, 212, 168, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .panel,
+  .panel-muted,
+  .reveal-up,
+  .reveal-fade,
+  .float-slow,
+  .pulse-soft {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}

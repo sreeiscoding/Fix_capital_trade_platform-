@@ -1,0 +1,264 @@
+﻿generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  MASTER
+  ADMIN
+}
+
+enum SubscriptionTier {
+  FREE
+  PRO
+  VIP
+}
+
+enum KycStatus {
+  PENDING
+  REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum DerivEnvironment {
+  DEMO
+  REAL
+}
+
+enum CopyRelationshipStatus {
+  ACTIVE
+  PAUSED
+  STOPPED
+}
+
+enum BotStatus {
+  DRAFT
+  RUNNING
+  PAUSED
+  STOPPED
+}
+
+enum TradeSource {
+  COPY
+  BOT
+  MANUAL
+}
+
+enum TradeStatus {
+  OPEN
+  FILLED
+  SETTLED
+  REJECTED
+  SKIPPED
+}
+
+enum SignalDirection {
+  LONG
+  SHORT
+  NEUTRAL
+}
+
+model User {
+  id                 String             @id @default(cuid())
+  email              String             @unique
+  passwordHash       String
+  name               String
+  role               UserRole           @default(USER)
+  subscriptionTier   SubscriptionTier   @default(FREE)
+  kycStatus          KycStatus          @default(PENDING)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  masterProfile      MasterProfile?
+  derivAccounts      DerivAccount[]
+  sentOAuthStates    OAuthState[]
+  copyingStrategies  CopyRelationship[] @relation("copier_relations")
+  followerStrategies CopyRelationship[] @relation("master_relations")
+  botConfigs         BotConfig[]
+  subscriptions      Subscription[]
+  signals            SignalSnapshot[]
+  copierAudits       TradeAudit[]       @relation("audit_copier")
+  masterAudits       TradeAudit[]       @relation("audit_master")
+}
+
+model MasterProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  displayName    String
+  bio            String?
+  strategyTag    String?
+  isVerified     Boolean  @default(false)
+  winRate        Float    @default(0)
+  profitFactor   Float    @default(0)
+  maxDrawdown    Float    @default(0)
+  monthlyReturn  Float    @default(0)
+  totalFollowers Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DerivAccount {
+  id                    String             @id @default(cuid())
+  userId                String
+  environment           DerivEnvironment
+  loginId               String
+  currency              String?
+  tokenEncrypted        String
+  refreshTokenEncrypted String?
+  tokenExpiresAt        DateTime?
+  scopes                String?
+  isPrimary             Boolean            @default(false)
+  balanceCached         Float              @default(0)
+  equityCached          Float              @default(0)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  masterRelations       CopyRelationship[] @relation("master_account")
+  copierRelations       CopyRelationship[] @relation("copier_account")
+
+  @@unique([userId, loginId])
+}
+
+model OAuthState {
+  id             String           @id @default(cuid())
+  userId         String
+  state          String           @unique
+  codeVerifier   String
+  requestedScope String
+  environment    DerivEnvironment
+  redirectUri    String
+  affiliateToken String?
+  createdAt      DateTime         @default(now())
+  expiresAt      DateTime
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model CopyRelationship {
+  id               String                 @id @default(cuid())
+  masterId         String
+  copierId         String
+  masterAccountId  String
+  copierAccountId  String
+  status           CopyRelationshipStatus @default(ACTIVE)
+  allocationPct    Float
+  lotMultiplier    Float                  @default(1)
+  maxDrawdownPct   Float
+  maxOpenPositions Int                    @default(3)
+  stopLossPct      Float?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  master           User                   @relation("master_relations", fields: [masterId], references: [id], onDelete: Cascade)
+  copier           User                   @relation("copier_relations", fields: [copierId], references: [id], onDelete: Cascade)
+  masterAccount    DerivAccount           @relation("master_account", fields: [masterAccountId], references: [id], onDelete: Cascade)
+  copierAccount    DerivAccount           @relation("copier_account", fields: [copierAccountId], references: [id], onDelete: Cascade)
+  audits           TradeAudit[]
+
+  @@unique([masterId, copierId, masterAccountId, copierAccountId])
+}
+
+model TradeSignal {
+  id            String      @id @default(cuid())
+  masterId      String?
+  symbol        String
+  contractType  String
+  duration      Int
+  durationUnit  String
+  amount        Float
+  basis         String
+  barrier       String?
+  takeProfitPct Float?
+  stopLossPct   Float?
+  source        TradeSource
+  rawPayload    Json
+  createdAt     DateTime    @default(now())
+}
+
+model TradeAudit {
+  id                 String            @id @default(cuid())
+  copyRelationshipId String?
+  signalId           String?
+  masterId           String?
+  copierId           String?
+  masterTradeRef     String?
+  copierTradeRef     String?
+  symbol             String
+  amount             Float
+  profit             Float?
+  status             TradeStatus
+  source             TradeSource
+  rawMasterPayload   Json?
+  rawCopierPayload   Json?
+  createdAt          DateTime          @default(now())
+  copyRelationship   CopyRelationship? @relation(fields: [copyRelationshipId], references: [id], onDelete: SetNull)
+  master             User?             @relation("audit_master", fields: [masterId], references: [id], onDelete: SetNull)
+  copier             User?             @relation("audit_copier", fields: [copierId], references: [id], onDelete: SetNull)
+}
+
+model BotConfig {
+  id              String    @id @default(cuid())
+  userId          String
+  name            String
+  templateKey     String?
+  status          BotStatus @default(DRAFT)
+  symbol          String
+  riskPerTradePct Float     @default(1)
+  config          Json
+  lastHeartbeatAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SignalSnapshot {
+  id          String          @id @default(cuid())
+  userId      String?
+  symbol      String
+  timeframe   String
+  direction   SignalDirection
+  probability Float
+  confidence  Float
+  rationale   String
+  indicators  Json
+  createdAt   DateTime        @default(now())
+  user        User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model TickSnapshot {
+  id        String   @id @default(cuid())
+  symbol    String
+  price     Float
+  bid       Float?
+  ask       Float?
+  epoch     Int
+  createdAt DateTime @default(now())
+
+  @@index([symbol, epoch])
+}
+
+model Subscription {
+  id                     String           @id @default(cuid())
+  userId                 String
+  tier                   SubscriptionTier
+  providerCustomerId     String?
+  providerSubscriptionId String?          @unique
+  status                 String
+  currentPeriodEnd       DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  user                   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  eventType   String
+  payload     Json
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+}
