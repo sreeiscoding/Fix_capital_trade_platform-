@@ -185,15 +185,17 @@ async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
           return;
         }
 
-        const market = markets.find((entry) => entry.symbol === message.tick.symbol);
+        const tick = message.tick!;
+        const quote = tick.quote as number;
+        const market = markets.find((entry) => entry.symbol === tick.symbol);
         if (!market) {
           return;
         }
 
-        const pipSize = message.tick.pip_size ?? market.decimals;
+        const pipSize = tick.pip_size ?? market.decimals;
         const spread = inferSpread(market.symbol, pipSize);
-        const ask = message.tick.quote + spread / 2;
-        const bid = message.tick.quote - spread / 2;
+        const ask = quote + spread / 2;
+        const bid = quote - spread / 2;
         const decimals = Math.max(pipSize, 2);
 
         quotes.set(market.symbol, {
@@ -201,8 +203,8 @@ async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
           label: market.label,
           ask: formatWithPrecision(ask, decimals),
           bid: formatWithPrecision(bid, decimals),
-          mid: formatWithPrecision(message.tick.quote, decimals),
-          updatedAt: new Date((message.tick.epoch ?? Date.now() / 1000) * 1000).toISOString()
+          mid: formatWithPrecision(quote, decimals),
+          updatedAt: new Date((tick.epoch ?? Date.now() / 1000) * 1000).toISOString()
         });
 
         if (quotes.size === markets.length) {

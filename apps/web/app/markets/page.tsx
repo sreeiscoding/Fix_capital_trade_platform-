@@ -1,10 +1,11 @@
 "use client";
 
-import { Activity, ArrowUpRight, BrainCircuit, Clock3, Globe2, Radar, ShieldAlert, Sparkles, TrendingUp } from "lucide-react";
+import { Activity, ArrowUpRight, Clock3, Globe2, Radar, ShieldAlert, Sparkles, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { DerivMarketChart } from "@/components/dashboard/deriv-market-chart";
+import { TradingViewWidget } from "@/components/dashboard/tradingview-widget";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { TopNav } from "@/components/layout/top-nav";
-import { TradingViewWidget } from "@/components/dashboard/tradingview-widget";
 import { apiRequest } from "@/lib/api";
 import { fallbackMarketQuotes, type MarketQuote } from "@/lib/market-quotes";
 
@@ -14,7 +15,8 @@ type MarketQuoteResponse = {
 };
 
 type MarketDetail = {
-  tvSymbol: string;
+  chartProvider: "tradingview" | "deriv";
+  tvSymbol?: string;
   category: string;
   headline: string;
   context: string;
@@ -23,6 +25,7 @@ type MarketDetail = {
 
 const marketDetails: Record<string, MarketDetail> = {
   frxEURUSD: {
+    chartProvider: "tradingview",
     tvSymbol: "FX:EURUSD",
     category: "Forex major",
     headline: "Use EUR/USD when you want a liquid, macro-driven benchmark for trade ideas.",
@@ -34,6 +37,7 @@ const marketDetails: Record<string, MarketDetail> = {
     ]
   },
   frxXAUUSD: {
+    chartProvider: "tradingview",
     tvSymbol: "OANDA:XAUUSD",
     category: "Metal",
     headline: "Use gold when you need a market that reacts quickly to macro fear, inflation, and rates.",
@@ -45,6 +49,7 @@ const marketDetails: Record<string, MarketDetail> = {
     ]
   },
   frxGBPJPY: {
+    chartProvider: "tradingview",
     tvSymbol: "FX:GBPJPY",
     category: "High beta forex",
     headline: "Use GBP/JPY when you want a faster market that rewards clear rules and disciplined sizing.",
@@ -56,10 +61,10 @@ const marketDetails: Record<string, MarketDetail> = {
     ]
   },
   R_100: {
-    tvSymbol: "CAPITALCOM:DE30",
-    category: "Synthetic benchmark",
-    headline: "Use synthetic-style contexts to pressure-test automation and execution discipline in faster conditions.",
-    context: "Synthetic workflows are useful for testing responsiveness, but they still need clear sizing rules, drawdown limits, and demo-first validation.",
+    chartProvider: "deriv",
+    category: "Synthetic index",
+    headline: "Use synthetic indices when you want uninterrupted Deriv-native market conditions for testing speed, discipline, and automation logic.",
+    context: "Synthetic markets are broker-native instruments, so the clearest chart source is Deriv itself. Use them to validate reaction speed, risk limits, and execution rules before scaling anything live.",
     checklist: [
       "Start with the smallest practical risk setting",
       "Validate bot reaction speed in demo mode first",
@@ -150,6 +155,8 @@ export default function MarketsPage() {
     return feedStatus === "live" ? `Live ${time}` : `Indicative ${time}`;
   }, [feedStatus, selectedMarket]);
 
+  const chartSourceLabel = selectedDetail.chartProvider === "deriv" ? "Deriv native chart" : "TradingView chart";
+
   return (
     <div className="min-h-screen">
       <TopNav />
@@ -182,8 +189,8 @@ export default function MarketsPage() {
                 <p className="mt-2 text-lg font-semibold text-white">{updatedLabel}</p>
               </div>
               <div className="panel-muted p-4 text-center sm:text-left">
-                <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Current focus</p>
-                <p className="mt-2 text-lg font-semibold text-white">{selectedMarket?.label ?? "EUR/USD"}</p>
+                <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Chart source</p>
+                <p className="mt-2 text-lg font-semibold text-white">{chartSourceLabel}</p>
               </div>
             </div>
           </div>
@@ -201,6 +208,7 @@ export default function MarketsPage() {
             <div className="space-y-3">
               {marketQuotes.map((quote) => {
                 const isActive = quote.symbol === selectedSymbol;
+                const quoteDetail = marketDetails[quote.symbol] ?? marketDetails.frxEURUSD;
 
                 return (
                   <button
@@ -216,7 +224,12 @@ export default function MarketsPage() {
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <p className="font-semibold text-white">{quote.label}</p>
-                        <p className="descriptive-copy mt-1 text-xs text-slate-400">{marketDetails[quote.symbol]?.category ?? "Market"}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <p className="descriptive-copy text-xs text-slate-400">{quoteDetail.category}</p>
+                          <span className="rounded-full bg-muted/50 px-2 py-0.5 font-secondary text-[10px] uppercase tracking-[0.12em] text-slate-300">
+                            {quoteDetail.chartProvider === "deriv" ? "Deriv chart" : "TradingView"}
+                          </span>
+                        </div>
                       </div>
                       <span className={`rounded-full px-2 py-1 font-secondary text-[11px] ${feedStatus === "live" ? "bg-success/10 text-success" : feedStatus === "loading" ? "bg-accent/10 text-accent" : "bg-warning/10 text-warning"}`}>
                         {feedStatus === "live" ? "Live" : feedStatus === "loading" ? "Loading" : "Fallback"}
@@ -253,6 +266,7 @@ export default function MarketsPage() {
                 <div className="rounded-3xl border border-border/70 bg-muted/40 px-4 py-3">
                   <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Market context</p>
                   <p className="mt-1 font-semibold text-white">{selectedDetail.category}</p>
+                  <p className="descriptive-copy mt-1 text-xs text-slate-400">{chartSourceLabel}</p>
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
@@ -276,7 +290,11 @@ export default function MarketsPage() {
               </div>
             </div>
 
-            <TradingViewWidget symbol={selectedDetail.tvSymbol} />
+            {selectedDetail.chartProvider === "deriv" ? (
+              <DerivMarketChart symbol={selectedMarket?.symbol ?? "R_100"} label={selectedMarket?.label ?? "R_100"} />
+            ) : (
+              <TradingViewWidget symbol={selectedDetail.tvSymbol ?? "FX:EURUSD"} />
+            )}
           </div>
         </section>
 
