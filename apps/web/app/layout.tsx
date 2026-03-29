@@ -1,6 +1,7 @@
 import { Bricolage_Grotesque, IBM_Plex_Mono, IBM_Plex_Sans, Inconsolata } from "next/font/google";
 import type { Metadata } from "next";
 import { AppProviders } from "./components/providers/app-providers";
+import { ScrollRevealManager } from "./components/providers/scroll-reveal-manager";
 import "./globals.css";
 
 const fontSans = IBM_Plex_Sans({
@@ -39,7 +40,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className={`${fontSans.variable} ${fontMono.variable} ${fontSecondary.variable} ${fontHeading.variable}`}>
-        <AppProviders>{children}</AppProviders>
+        <AppProviders>
+          <ScrollRevealManager />
+          {children}
+        </AppProviders>
       </body>
     </html>
   );

@@ -21,6 +21,17 @@ type DerivTickMessage = {
   };
 };
 
+type DerivHistoryMessage = {
+  msg_type?: string;
+  history?: {
+    prices?: Array<number | string>;
+    times?: number[];
+  };
+  error?: {
+    message?: string;
+  };
+};
+
 export type MarketQuoteSnapshot = {
   symbol: string;
   label: string;
@@ -35,6 +46,16 @@ export type MarketQuoteFeed = {
   quotes: MarketQuoteSnapshot[];
 };
 
+export type MarketHistoryPoint = {
+  time: number;
+  value: number;
+};
+
+export type MarketHistoryFeed = {
+  source: "live" | "fallback";
+  points: MarketHistoryPoint[];
+};
+
 const DEFAULT_MARKETS: readonly MarketQuoteConfig[] = [
   { symbol: "frxEURUSD", label: "EUR/USD", fallbackMid: 1.08418, decimals: 5 },
   { symbol: "frxXAUUSD", label: "XAU/USD", fallbackMid: 3068.16, decimals: 2 },
@@ -43,13 +64,22 @@ const DEFAULT_MARKETS: readonly MarketQuoteConfig[] = [
 ] as const;
 
 const LIVE_CACHE_TTL_MS = 1500;
+const HISTORY_CACHE_TTL_MS = 4000;
 
-let cache:
+let quoteCache:
   | {
       expiresAt: number;
       data: MarketQuoteFeed;
     }
   | null = null;
+
+const historyCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    data: MarketHistoryFeed;
+  }
+>();
 
 function formatWithPrecision(value: number, decimals: number) {
   return value.toFixed(Math.max(decimals, 2));
@@ -73,6 +103,10 @@ function hashSymbol(symbol: string) {
   return Array.from(symbol).reduce((sum, char) => sum + char.charCodeAt(0), 0);
 }
 
+function findMarket(symbol: string) {
+  return DEFAULT_MARKETS.find((market) => market.symbol === symbol) ?? DEFAULT_MARKETS[0];
+}
+
 function buildFallbackQuotes() {
   const now = Date.now();
 
@@ -92,6 +126,24 @@ function buildFallbackQuotes() {
       bid: formatWithPrecision(bid, market.decimals),
       mid: formatWithPrecision(mid, market.decimals),
       updatedAt: new Date(now).toISOString()
+    };
+  });
+}
+
+function buildFallbackHistory(symbol: string, count: number) {
+  const market = findMarket(symbol);
+  const now = Date.now();
+  const seed = hashSymbol(symbol);
+
+  return Array.from({ length: count }, (_, index) => {
+    const timestamp = now - (count - index - 1) * 60_000;
+    const wave = Math.sin(timestamp / 210_000 + seed / 7) * Math.max(market.fallbackMid * 0.00016, 0.02);
+    const drift = Math.cos(timestamp / 340_000 + seed / 11) * Math.max(market.fallbackMid * 0.00008, 0.01);
+    const pulse = Math.sin(index / 4 + seed / 19) * Math.max(market.fallbackMid * 0.00004, 0.006);
+
+    return {
+      time: Math.floor(timestamp / 1000),
+      value: Number((market.fallbackMid + wave + drift + pulse).toFixed(market.decimals))
     };
   });
 }
@@ -133,7 +185,7 @@ async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
           return;
         }
 
-        const market = markets.find((entry) => entry.symbol === message.tick?.symbol);
+        const market = markets.find((entry) => entry.symbol === message.tick.symbol);
         if (!market) {
           return;
         }
@@ -174,9 +226,82 @@ async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
   });
 }
 
+async function fetchDerivTickHistory(symbol: string, count: number) {
+  return await new Promise<MarketHistoryPoint[]>((resolve, reject) => {
+    const connection = new WebSocket(`${env.DERIV_WS_URL}?app_id=${env.DERIV_APP_ID}`);
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("Timed out while fetching market history"));
+    }, 7000);
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      connection.removeAllListeners();
+      if (connection.readyState === WebSocket.OPEN || connection.readyState === WebSocket.CONNECTING) {
+        connection.close();
+      }
+    };
+
+    connection.on("open", () => {
+      connection.send(
+        JSON.stringify({
+          ticks_history: symbol,
+          adjust_start_time: 1,
+          end: "latest",
+          count,
+          style: "ticks"
+        })
+      );
+    });
+
+    connection.on("message", (payload) => {
+      try {
+        const message = JSON.parse(String(payload)) as DerivHistoryMessage;
+
+        if (message.error) {
+          cleanup();
+          reject(new Error(message.error.message ?? "Failed to fetch market history"));
+          return;
+        }
+
+        if (message.msg_type !== "history" || !message.history?.prices || !message.history.times) {
+          return;
+        }
+
+        const points = message.history.times
+          .map((time, index) => {
+            const rawPrice = message.history?.prices?.[index];
+            const value = typeof rawPrice === "number" ? rawPrice : Number(rawPrice);
+
+            if (!Number.isFinite(value)) {
+              return null;
+            }
+
+            return {
+              time,
+              value
+            };
+          })
+          .filter((point): point is MarketHistoryPoint => point !== null);
+
+        cleanup();
+        resolve(points);
+      } catch (error) {
+        cleanup();
+        reject(error instanceof Error ? error : new Error("Failed to parse market history payload"));
+      }
+    });
+
+    connection.on("error", (error) => {
+      cleanup();
+      reject(error instanceof Error ? error : new Error("Market history connection failed"));
+    });
+  });
+}
+
 export async function getLiveMarketQuotes(): Promise<MarketQuoteFeed> {
-  if (cache && cache.expiresAt > Date.now()) {
-    return cache.data;
+  if (quoteCache && quoteCache.expiresAt > Date.now()) {
+    return quoteCache.data;
   }
 
   try {
@@ -185,15 +310,50 @@ export async function getLiveMarketQuotes(): Promise<MarketQuoteFeed> {
       source: "live",
       quotes
     };
-    cache = {
+    quoteCache = {
       data,
       expiresAt: Date.now() + LIVE_CACHE_TTL_MS
     };
     return data;
-  } catch (error) {
+  } catch {
     return {
       source: "fallback",
       quotes: buildFallbackQuotes()
     };
+  }
+}
+
+export async function getMarketHistory(symbol: string, count = 120): Promise<MarketHistoryFeed> {
+  const cacheKey = `${symbol}:${count}`;
+  const cached = historyCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  try {
+    const points = await fetchDerivTickHistory(symbol, count);
+    const data: MarketHistoryFeed = {
+      source: "live",
+      points
+    };
+
+    historyCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + HISTORY_CACHE_TTL_MS
+    });
+
+    return data;
+  } catch {
+    const data: MarketHistoryFeed = {
+      source: "fallback",
+      points: buildFallbackHistory(symbol, count)
+    };
+
+    historyCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + HISTORY_CACHE_TTL_MS
+    });
+
+    return data;
   }
 }

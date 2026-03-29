@@ -12,6 +12,7 @@ import {
   Clock3,
   Gauge,
   Link2,
+  MoveRight,
   PlayCircle,
   SearchX,
   ShieldAlert,
@@ -32,57 +33,57 @@ const frustrations = [
   {
     icon: ChartCandlestick,
     title: "Tired of staring at charts all day?",
-    body: "Manual chart watching drains focus, increases impulse trades, and makes it hard to react consistently across sessions.",
+    body: "Watching charts nonstop can drain your focus, increase emotional decisions, and make trading feel harder than it should.",
     delayClass: "reveal-delay-1"
   },
   {
     icon: SearchX,
-    title: "Struggling to find consistent strategies?",
-    body: "Jumping between signals, creators, and random setups often leads to noise instead of a repeatable trading process.",
+    title: "Struggling to find a strategy you can trust?",
+    body: "Jumping between random signals, creators, and setups can leave you with more noise than clarity.",
     delayClass: "reveal-delay-2"
   },
   {
     icon: ShieldAlert,
-    title: "High risk without proper tools?",
-    body: "Without allocation controls, drawdown protection, and execution safeguards, a single bad idea can spiral quickly.",
+    title: "Taking risk without the right tools?",
+    body: "Without proper controls, one bad decision can undo progress quickly and make it harder to stay consistent.",
     delayClass: "reveal-delay-3"
   }
-];
+] as const;
 
 const howItWorksSteps = [
   {
     step: "01",
     icon: UserPlus,
     title: "Create a free account",
-    body: "Start with a FixCapital profile so you can access the dashboard, demo workspace, and onboarding tools.",
+    body: "Open your FixCapital account in minutes and start exploring the dashboard without needing a card.",
     delayClass: "reveal-delay-1"
   },
   {
     step: "02",
     icon: Link2,
     title: "Connect your Deriv account",
-    body: "Link your Deriv demo or real account securely with OAuth. Your funds always remain in your own broker account.",
+    body: "Link your Deriv demo or real account securely with OAuth while keeping your funds under your own broker login.",
     delayClass: "reveal-delay-2"
   },
   {
     step: "03",
     icon: ArrowRightLeft,
     title: "Choose copy trading or bots",
-    body: "Pick a verified trader to follow, launch an automated strategy, or test both approaches in demo mode first.",
+    body: "Follow a trader, launch a bot, or test both approaches in demo mode until you find what fits your style.",
     delayClass: "reveal-delay-3"
   },
   {
     step: "04",
     icon: SlidersHorizontal,
     title: "Set your risk preferences",
-    body: "Control allocation, drawdown limits, lot sizing, and other safety rules before any trades are mirrored or automated.",
+    body: "Choose allocation, drawdown limits, lot sizing, and other safety rules before any trade is allowed to execute.",
     delayClass: "reveal-delay-4"
   },
   {
     step: "05",
     icon: PlayCircle,
     title: "Watch trades execute automatically",
-    body: "Monitor live activity, performance, and alerts from one place while FixCapital handles the execution workflow.",
+    body: "Track positions, alerts, and performance from one place while your workflow keeps running in the background.",
     delayClass: "reveal-delay-5"
   }
 ] as const;
@@ -98,20 +99,20 @@ const successMetrics = [
   {
     icon: Users,
     value: "10,000+",
-    label: "Built to support growing trader communities",
-    body: "Designed for onboarding from first-time demo users through larger copy-trading audiences."
+    label: "Designed for growing trader communities",
+    body: "Built to support everyone from curious demo users to larger copy-trading audiences."
   },
   {
     icon: Clock3,
     value: "24/7",
-    label: "Execution coverage",
-    body: "Bot and copy workflows are structured for always-on monitoring instead of manual chart watching."
+    label: "Execution support around the clock",
+    body: "Your workflow does not need to stop just because you cannot sit in front of charts all day."
   },
   {
     icon: ShieldCheck,
     value: "100%",
-    label: "User capital stays in Deriv",
-    body: "FixCapital never takes custody of client funds and operates as an overlay on linked broker accounts."
+    label: "Your capital stays in Deriv",
+    body: "You stay in control of your funds because FixCapital works as an overlay, not a custodian."
   }
 ] as const;
 
@@ -142,20 +143,20 @@ const leaderboardPreview = [
 const transformationBenefits = [
   {
     icon: Gauge,
-    title: "Less screen fatigue, more structured decisions",
-    body: "Move from constant chart-checking to a workflow built around alerts, automation, and clearer execution rules.",
+    title: "Spend less time glued to the screen",
+    body: "Move from constant chart watching to a workflow supported by alerts, automation, and clearer execution rules.",
     delayClass: "reveal-delay-1"
   },
   {
     icon: Workflow,
-    title: "One platform instead of scattered tools",
-    body: "Copy trading, bots, live markets, and analytics live in one connected dashboard instead of separate tabs and chat groups.",
+    title: "Keep everything in one place",
+    body: "Bring copy trading, bots, live markets, and analytics together instead of managing scattered tools and tabs.",
     delayClass: "reveal-delay-2"
   },
   {
     icon: BellRing,
-    title: "Confidence through visibility and control",
-    body: "Set risk limits before execution and stay informed with live updates, signals, and performance monitoring.",
+    title: "Feel more in control of every trade",
+    body: "Set your guardrails first, then monitor performance with more visibility and less guesswork.",
     delayClass: "reveal-delay-3"
   }
 ] as const;
@@ -164,28 +165,28 @@ const pillars = [
   {
     icon: ArrowRightLeft,
     title: "Copy trading with guardrails",
-    body: "Mirror verified traders using allocation caps, drawdown limits, and queue-backed execution against your own Deriv account.",
+    body: "Follow verified traders while keeping control over allocation, drawdown limits, and account-level safety rules.",
     delayClass: "reveal-delay-1"
   },
   {
     icon: Bot,
     title: "No-code automation",
-    body: "Build and deploy logic visually, using technical conditions, reusable templates, and always-on bot workers.",
+    body: "Build and run automated strategies without needing to code every part of the workflow yourself.",
     delayClass: "reveal-delay-2"
   },
   {
     icon: BrainCircuit,
     title: "AI signal intelligence",
-    body: "Score setups with probability widgets, momentum diagnostics, and volatility-aware alerts.",
+    body: "Use market context, scoring, and alerts to make decisions with more confidence and less second-guessing.",
     delayClass: "reveal-delay-3"
   },
   {
     icon: ShieldCheck,
     title: "Security first",
-    body: "OAuth with PKCE, encrypted Deriv tokens, rate limits, and clear audit trails across linked accounts.",
+    body: "Protect your account with OAuth, encrypted tokens, rate limits, and transparent audit trails.",
     delayClass: "reveal-delay-4"
   }
-];
+] as const;
 
 type PricingPlan = {
   name: string;
@@ -207,7 +208,7 @@ const pricingPlans: PricingPlan[] = [
     name: "Free",
     monthlyPrice: "$0",
     annualNote: "Always free",
-    summary: "Best for first-time users exploring the dashboard and demo workflows.",
+    summary: "Start exploring the platform, test the experience, and learn how the workflow fits you.",
     cta: "Start Free",
     ctaHref: "/auth/login",
     ctaStyle: "border border-border bg-transparent text-foreground hover:bg-white/5",
@@ -225,7 +226,7 @@ const pricingPlans: PricingPlan[] = [
     monthlyPrice: "$49",
     annualNote: "$39/mo billed annually",
     annualDiscount: "Save 20% on annual billing",
-    summary: "For active traders ready to unlock live copy execution and AI-assisted workflows.",
+    summary: "Unlock live copy execution, deeper analytics, and more automation when you are ready to level up.",
     cta: "Upgrade to Pro",
     ctaHref: "/auth/login",
     ctaStyle: "bg-accent text-slate-950 hover:brightness-110",
@@ -244,7 +245,7 @@ const pricingPlans: PricingPlan[] = [
     monthlyPrice: "$149",
     annualNote: "$119/mo billed annually",
     annualDiscount: "Save 20% on annual billing",
-    summary: "For serious operators who want scale, premium access, and guided onboarding.",
+    summary: "Choose VIP when you want more scale, premium access, and guided support around your trading workflow.",
     cta: "Talk to Sales",
     ctaHref: "/auth/login",
     ctaStyle: "border border-accent/30 bg-accent/10 text-accent hover:bg-accent/15",
@@ -262,7 +263,7 @@ const pricingPlans: PricingPlan[] = [
 const faqs = [
   {
     question: "Do I need to deposit money into FixCapital?",
-    answer: "No. FixCapital is an overlay platform. Your trading capital stays inside your own Deriv account, and account linking happens through secure OAuth."
+    answer: "No. Your trading capital stays inside your own Deriv account, and account linking happens through secure OAuth."
   },
   {
     question: "Can I try the platform without risking real money?",
@@ -278,23 +279,50 @@ const faqs = [
   },
   {
     question: "Is FixCapital suitable for beginners?",
-    answer: "Yes, especially in demo mode. The onboarding flow is designed to be simple, and the platform emphasizes risk warnings, controls, and gradual progression to live trading."
+    answer: "Yes, especially in demo mode. The onboarding flow is designed to feel simple while giving you risk warnings, controls, and a safer path into live trading."
   }
 ] as const;
+
+type SectionIntroProps = {
+  eyebrow: string;
+  title: string;
+  body: string;
+  className?: string;
+};
+
+function SectionFlow() {
+  return (
+    <div className="section-flow reveal-fade" aria-hidden="true">
+      <span className="section-flow__orb" />
+      <span className="section-flow__line" />
+    </div>
+  );
+}
+
+function SectionIntro({ eyebrow, title, body, className = "max-w-3xl" }: SectionIntroProps) {
+  return (
+    <div className={`section-intro ${className}`}>
+      <p className="section-eyebrow reveal-up">{eyebrow}</p>
+      <h2 className="section-title reveal-up reveal-delay-1">{title}</h2>
+      <p className="section-copy reveal-up reveal-delay-2">{body}</p>
+    </div>
+  );
+}
 
 export default function HomePage() {
   return (
     <div className="min-h-screen">
       <TopNav />
       <HeroSection />
-      <section className="mx-auto max-w-7xl px-4 py-10">
-        <div className="mb-6 max-w-2xl">
-          <p className="descriptive-copy reveal-up text-xs uppercase tracking-[0.28em] text-warning">The problem</p>
-          <h2 className="reveal-up reveal-delay-1 mt-3 text-3xl font-semibold text-white md:text-4xl">Trading feels harder when the process depends on constant screen time.</h2>
-          <p className="descriptive-copy reveal-up reveal-delay-2 mt-4 text-sm text-slate-300 md:text-base">
-            FixCapital is built for retail traders who want structure, execution support, and better risk control instead of guesswork.
-          </p>
-        </div>
+
+      <section className="section-shell mx-auto max-w-7xl px-4 py-8 md:py-10">
+        <SectionFlow />
+        <SectionIntro
+          eyebrow="The problem"
+          title="If trading still depends on constant screen time, it can start to feel exhausting fast."
+          body="You should not have to bounce between charts, signals, and scattered tools just to trade with more confidence and control."
+          className="max-w-2xl"
+        />
         <div className="grid gap-4 lg:grid-cols-3">
           {frustrations.map((item) => {
             const Icon = item.icon;
@@ -310,18 +338,19 @@ export default function HomePage() {
           })}
         </div>
       </section>
-      <section className="mx-auto max-w-7xl px-4 py-10">
+
+      <section className="section-shell mx-auto max-w-7xl px-4 py-8 md:py-10">
+        <SectionFlow />
         <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl">
-            <p className="descriptive-copy reveal-up text-xs uppercase tracking-[0.28em] text-accent">How it works</p>
-            <h2 className="reveal-up reveal-delay-1 mt-3 text-3xl font-semibold text-white md:text-4xl">A simple five-step flow for getting started safely.</h2>
-            <p className="descriptive-copy reveal-up reveal-delay-2 mt-4 text-sm text-slate-300 md:text-base">
-              From account setup to automated execution, each step is designed to be clear for new users and flexible for active traders.
-            </p>
-          </div>
+          <SectionIntro
+            eyebrow="How it works"
+            title="Getting started should feel simple, even if you are new to copy trading or bots."
+            body="Create your account, connect Deriv, choose your workflow, and stay in control from the very first step."
+            className="max-w-2xl"
+          />
           <Link
             href="/auth/login"
-            className="descriptive-copy inline-flex items-center justify-center rounded-2xl bg-accent px-4 py-2 text-sm font-medium text-slate-950 transition duration-200 hover:brightness-110"
+            className="descriptive-copy inline-flex self-center items-center justify-center rounded-2xl bg-accent px-5 py-2 text-sm font-medium text-slate-950 transition duration-200 hover:brightness-110 sm:self-auto sm:w-auto"
           >
             Try in Demo Mode
           </Link>
@@ -347,7 +376,14 @@ export default function HomePage() {
           })}
         </div>
       </section>
-      <section id="features" className="mx-auto max-w-7xl px-4 py-10">
+
+      <section id="features" className="section-shell mx-auto max-w-7xl px-4 py-8 md:py-10">
+        <SectionFlow />
+        <SectionIntro
+          eyebrow="What you can do"
+          title="Everything you need to trade with more structure, more visibility, and less noise."
+          body="Each part of the platform is built to help you act with more clarity, whether you are copying traders, running bots, or managing risk."
+        />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {pillars.map((pillar) => {
             const Icon = pillar.icon;
@@ -356,22 +392,22 @@ export default function HomePage() {
                 <div className="inline-flex rounded-2xl bg-accent/10 p-3 text-accent">
                   <Icon className="h-5 w-5" />
                 </div>
-                <h2 className="text-xl font-semibold text-white">{pillar.title}</h2>
+                <h3 className="text-xl font-semibold text-white">{pillar.title}</h3>
                 <p className="descriptive-copy text-sm text-slate-300">{pillar.body}</p>
               </div>
             );
           })}
         </div>
       </section>
-      <section className="mx-auto max-w-7xl px-4 py-10">
-        <div className="mb-6 max-w-3xl">
-          <p className="descriptive-copy reveal-up text-xs uppercase tracking-[0.28em] text-accent">Social proof and trust</p>
-          <h2 className="reveal-up reveal-delay-1 mt-3 text-3xl font-semibold text-white md:text-4xl">Built to feel credible before a user places the first trade.</h2>
-          <p className="descriptive-copy reveal-up reveal-delay-2 mt-4 text-sm text-slate-300 md:text-base">
-            See how FixCapital builds confidence with visible safety signals, credible trader outcomes, and proof that the platform is designed for disciplined execution.
-          </p>
-        </div>
-        <div className="mb-4 flex flex-wrap gap-3">
+
+      <section className="section-shell mx-auto max-w-7xl px-4 py-8 md:py-10">
+        <SectionFlow />
+        <SectionIntro
+          eyebrow="Social proof and trust"
+          title="You want proof before you trust a trading workflow, and that is exactly how it should be."
+          body="FixCapital helps you evaluate the platform with visible safety signals, trader outcomes, and a clearer picture of how the experience is built to support you."
+        />
+        <div className="mb-4 flex flex-wrap justify-center gap-3 md:justify-start">
           {trustBadges.map((badge, index) => {
             const Icon = badge.icon;
             return (
@@ -403,13 +439,13 @@ export default function HomePage() {
               <Users className="h-5 w-5 text-accent" />
               <div>
                 <p className="descriptive-copy text-xs uppercase tracking-[0.24em] text-slate-400">User testimonials</p>
-                <h3 className="mt-1 text-2xl font-semibold text-white">What traders want from the experience</h3>
+                <h3 className="mt-1 text-2xl font-semibold text-white">What traders say they value most</h3>
               </div>
             </div>
             <div className="grid gap-4 md:grid-cols-3">
               {testimonials.map((testimonial, index) => (
                 <div key={testimonial.name} className={`panel-hover reveal-up reveal-delay-${Math.min(index + 1, 5)} panel-muted h-full space-y-4 p-5`}>
-                  <p className="text-accent">""</p>
+                  <p className="text-2xl leading-none text-accent">"</p>
                   <p className="descriptive-copy text-sm text-slate-200">{testimonial.quote}</p>
                   <div>
                     <p className="font-semibold text-white">{testimonial.name}</p>
@@ -424,7 +460,7 @@ export default function HomePage() {
               <Trophy className="h-5 w-5 text-accent" />
               <div>
                 <p className="descriptive-copy text-xs uppercase tracking-[0.24em] text-slate-400">Leaderboard teaser</p>
-                <h3 className="mt-1 text-2xl font-semibold text-white">Top masters preview</h3>
+                <h3 className="mt-1 text-2xl font-semibold text-white">A quick look at top masters</h3>
               </div>
             </div>
             <div className="space-y-3">
@@ -442,19 +478,19 @@ export default function HomePage() {
               ))}
             </div>
             <div className="descriptive-copy rounded-2xl border border-warning/20 bg-warning/10 p-4 text-xs text-warning">
-              Leaderboard shown as a teaser preview. Replace with live master statistics once production trading data is connected.
+              Preview only. Live leaderboard statistics can be connected as production trading data becomes available.
             </div>
           </div>
         </div>
       </section>
-      <section className="mx-auto max-w-7xl px-4 py-10">
-        <div className="mb-6 max-w-3xl">
-          <p className="descriptive-copy reveal-up text-xs uppercase tracking-[0.28em] text-accent">Why choose FixCapital</p>
-          <h2 className="reveal-up reveal-delay-1 mt-3 text-3xl font-semibold text-white md:text-4xl">Move from reactive trading habits to a calmer, more controlled workflow.</h2>
-          <p className="descriptive-copy reveal-up reveal-delay-2 mt-4 text-sm text-slate-300 md:text-base">
-            The benefit is not just more features. It is the transformation from fragmented execution to a system built around discipline, visibility, and repeatable decisions.
-          </p>
-        </div>
+
+      <section className="section-shell mx-auto max-w-7xl px-4 py-8 md:py-10">
+        <SectionFlow />
+        <SectionIntro
+          eyebrow="Why choose FixCapital"
+          title="Choose a workflow that helps you feel calmer, clearer, and more in control."
+          body="When you want trading to feel more organized and less reactive, FixCapital helps you bring risk rules, visibility, and execution into one place."
+        />
         <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
           <div className="grid gap-4 md:grid-cols-3">
             {transformationBenefits.map((item) => {
@@ -473,42 +509,46 @@ export default function HomePage() {
           <div className="panel reveal-up reveal-delay-4 space-y-5 p-6">
             <div>
               <p className="descriptive-copy text-xs uppercase tracking-[0.24em] text-slate-400">Transformation snapshot</p>
-              <h3 className="mt-2 text-2xl font-semibold text-white">Before and after the workflow shift</h3>
+              <h3 className="mt-2 text-2xl font-semibold text-white">What changes when your workflow is built around control</h3>
             </div>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
               <div className="rounded-3xl border border-destructive/20 bg-destructive/5 p-5">
                 <p className="descriptive-copy text-xs uppercase tracking-[0.24em] text-destructive">Before</p>
                 <p className="mt-3 text-lg font-semibold text-white">Scattered decisions and inconsistent execution</p>
-                <p className="descriptive-copy mt-2 text-sm text-slate-300">Too many tabs, unclear signals, and limited risk structure make trading feel reactive.</p>
+                <p className="descriptive-copy mt-2 text-sm text-slate-300">Too many tabs, unclear signals, and limited risk structure can make trading feel reactive and stressful.</p>
               </div>
               <div className="rounded-3xl border border-success/20 bg-success/5 p-5">
                 <p className="descriptive-copy text-xs uppercase tracking-[0.24em] text-success">After</p>
-                <p className="mt-3 text-lg font-semibold text-white">Structured workflows with guardrails</p>
-                <p className="descriptive-copy mt-2 text-sm text-slate-300">One dashboard, defined risk rules, and automated execution help users trade with more clarity and less friction.</p>
+                <p className="mt-3 text-lg font-semibold text-white">A more structured way to trade</p>
+                <p className="descriptive-copy mt-2 text-sm text-slate-300">One dashboard, clear guardrails, and automation support can help you move with more clarity and less friction.</p>
               </div>
             </div>
           </div>
         </div>
       </section>
-      <section className="mx-auto max-w-7xl px-4 py-10">
-        <div className="reveal-up descriptive-copy mb-6 flex items-center gap-3 text-sm text-slate-400">
-          <Sparkles className="h-4 w-4 text-accent" />
-          Advanced charting with live-market context
-        </div>
+
+      <section className="section-shell mx-auto max-w-7xl px-4 py-8 md:py-10">
+        <SectionFlow />
+        <SectionIntro
+          eyebrow="See the market"
+          title="Watch the market in context before you make your next move."
+          body="Use live charting to stay grounded in current price action while the rest of your workflow stays organized in the same experience."
+        />
         <div className="reveal-up reveal-delay-1">
           <TradingViewWidget symbol="FX:EURUSD" />
         </div>
       </section>
-      <section id="pricing" className="mx-auto max-w-7xl px-4 py-10 pb-20">
+
+      <section id="pricing" className="section-shell mx-auto max-w-7xl px-4 py-8 pb-16 md:py-10 md:pb-20">
+        <SectionFlow />
         <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl">
-            <p className="descriptive-copy reveal-up text-xs uppercase tracking-[0.28em] text-accent">Pricing</p>
-            <h2 className="reveal-up reveal-delay-1 mt-3 text-3xl font-semibold text-white md:text-4xl">Choose the plan that fits where you are now and grow when you are ready for more automation, control, and support.</h2>
-            <p className="descriptive-copy reveal-up reveal-delay-2 mt-4 text-sm text-slate-300 md:text-base">
-              Start Free with no card required, then unlock live copy execution, bots, and premium support as your workflow grows.
-            </p>
-          </div>
-          <div className="descriptive-copy inline-flex items-center rounded-full border border-success/20 bg-success/10 px-4 py-2 text-sm text-success">
+          <SectionIntro
+            eyebrow="Pricing"
+            title="Start free today and upgrade only when you are ready for more automation, control, and support."
+            body="Choose the plan that fits where you are now, with room to grow into live copy trading, automation, and more advanced workflows later."
+            className="max-w-3xl"
+          />
+          <div className="descriptive-copy inline-flex w-full items-center justify-center rounded-full border border-success/20 bg-success/10 px-4 py-2 text-sm text-success sm:w-auto lg:justify-start">
             Annual billing available: save 20%
           </div>
         </div>
@@ -521,13 +561,16 @@ export default function HomePage() {
               key={plan.name}
               className={`panel-hover reveal-up ${plan.delayClass} panel flex h-full flex-col space-y-5 p-6 ${plan.featured ? "border-accent/40 shadow-[0_0_0_1px_rgba(87,212,168,0.18),0_20px_60px_rgba(5,10,17,0.45)]" : ""}`}
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="font-secondary text-sm uppercase tracking-[0.28em] text-slate-400">{plan.name}</p>
-                  <p className="price-copy mt-3 text-4xl font-semibold text-white">{plan.monthlyPrice}<span className="text-lg text-slate-400">/mo</span></p>
+                  <p className="price-copy mt-3 text-4xl font-semibold text-white">
+                    {plan.monthlyPrice}
+                    <span className="text-lg text-slate-400">/mo</span>
+                  </p>
                   <p className="descriptive-copy mt-2 text-sm text-slate-300">{plan.summary}</p>
                 </div>
-                <span className={`descriptive-copy whitespace-nowrap rounded-full px-3 py-1 text-xs ${plan.featured ? "bg-accent text-slate-950" : "border border-border/70 bg-card/70 text-slate-200"}`}>
+                <span className={`descriptive-copy self-start whitespace-nowrap rounded-full px-3 py-1 text-xs ${plan.featured ? "bg-accent text-slate-950" : "border border-border/70 bg-card/70 text-slate-200"}`}>
                   {plan.badge}
                 </span>
               </div>
@@ -548,7 +591,7 @@ export default function HomePage() {
               </div>
               <Link
                 href={plan.ctaHref}
-                className={`descriptive-copy inline-flex items-center justify-center rounded-2xl px-4 py-3 text-sm font-medium transition duration-200 ${plan.ctaStyle}`}
+                className={`descriptive-copy inline-flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-medium transition duration-200 sm:w-auto ${plan.ctaStyle}`}
               >
                 {plan.cta}
               </Link>
@@ -559,21 +602,23 @@ export default function HomePage() {
           ))}
         </div>
       </section>
-      <section className="mx-auto max-w-7xl px-4 py-10 pb-20">
+
+      <section className="section-shell mx-auto max-w-7xl px-4 py-8 pb-16 md:py-10 md:pb-20">
+        <SectionFlow />
         <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
-          <div className="panel reveal-up space-y-5 p-6 lg:sticky lg:top-24">
+          <div className="panel reveal-up space-y-5 p-5 sm:p-6 lg:sticky lg:top-24">
             <div>
-              <p className="descriptive-copy text-xs uppercase tracking-[0.28em] text-accent">FAQ</p>
-              <h2 className="mt-3 text-3xl font-semibold text-white md:text-4xl">Common questions before you get started.</h2>
-              <p className="descriptive-copy mt-4 text-sm text-slate-300 md:text-base">
-                Quick answers to the things most users want to know before linking an account, testing in demo mode, or moving to live execution.
+              <p className="section-eyebrow">FAQ</p>
+              <h2 className="section-title">Answers to help you feel confident before you start.</h2>
+              <p className="section-copy">
+                Get clear answers to the questions that matter most when you are deciding whether to start in demo mode, link your account, or move into live trading.
               </p>
             </div>
             <div className="rounded-3xl border border-accent/20 bg-accent/10 p-5">
               <p className="descriptive-copy text-xs uppercase tracking-[0.24em] text-accent">Getting started</p>
               <p className="mt-3 text-lg font-semibold text-white">Start free, test in demo, then scale into live workflows when you are ready.</p>
               <p className="descriptive-copy mt-3 text-sm text-slate-300">
-                The platform is designed to answer practical setup questions early so users can move forward with more clarity and less hesitation.
+                You can get the practical answers you need early, so it feels easier to move forward with more clarity and less hesitation.
               </p>
             </div>
           </div>
@@ -593,7 +638,40 @@ export default function HomePage() {
             ))}
           </div>
         </div>
-      </section><SiteFooter />
+      </section>
+
+      <section className="section-shell mx-auto max-w-7xl px-4 pb-16 md:pb-20">
+        <SectionFlow />
+        <div className="panel reveal-up overflow-hidden border-accent/30 bg-gradient-to-br from-accent/12 via-card/95 to-card p-8 md:p-10">
+          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+            <div className="max-w-2xl">
+              <p className="section-eyebrow">Get started</p>
+              <h2 className="section-title">Start free, explore the workflow in demo mode, and move to live trading only when you feel ready.</h2>
+              <p className="section-copy">
+                FixCapital gives you one place to discover traders, configure bots, manage risk, and monitor execution without handing over custody of your capital.
+              </p>
+            </div>
+            <div className="flex flex-col items-stretch gap-3 sm:items-center lg:items-end">
+              <Link
+                href="/auth/login"
+                className="descriptive-copy inline-flex w-full items-center justify-center rounded-2xl bg-accent px-5 py-3 text-sm font-medium text-slate-950 transition duration-200 hover:brightness-110 sm:w-auto"
+              >
+                Start Free - No card required
+                <MoveRight className="ml-2 h-4 w-4" />
+              </Link>
+              <Link
+                href="/auth/login"
+                className="descriptive-copy inline-flex w-full items-center justify-center rounded-2xl border border-border bg-transparent px-5 py-3 text-sm font-medium text-foreground transition duration-200 hover:bg-white/5 sm:w-auto"
+              >
+                Try in Demo Mode
+              </Link>
+              <p className="descriptive-copy text-xs text-slate-400">Demo-first onboarding. Secure Deriv OAuth. Risk controls built in.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <SiteFooter />
     </div>
   );
 }

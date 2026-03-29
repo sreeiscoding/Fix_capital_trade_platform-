@@ -8,11 +8,22 @@ import {
   listDerivAccounts,
   unlinkDerivAccount
 } from "./deriv-oauth.service.js";
-import { getLiveMarketQuotes } from "./market-data.service.js";
+import { getLiveMarketQuotes, getMarketHistory } from "./market-data.service.js";
 
 export async function derivRoutes(app: FastifyInstance) {
   app.get("/market-quotes", async () => {
     return await getLiveMarketQuotes();
+  });
+
+  app.get("/market-history", async (request) => {
+    const query = z
+      .object({
+        symbol: z.string().min(1),
+        count: z.coerce.number().int().min(20).max(300).default(120)
+      })
+      .parse(request.query);
+
+    return await getMarketHistory(query.symbol, query.count);
   });
 
   app.get("/accounts", { preHandler: [ensureAuth(app)] }, async (request) => {
@@ -48,7 +59,7 @@ export async function derivRoutes(app: FastifyInstance) {
       await completeDerivOAuthCallback(query);
       const redirectUrl = new URL("/dashboard?deriv=connected", env.CLIENT_URL);
       return reply.redirect(redirectUrl.toString());
-    } catch (error) {
+    } catch {
       const redirectUrl = new URL("/dashboard?deriv=error", env.CLIENT_URL);
       return reply.redirect(redirectUrl.toString());
     }

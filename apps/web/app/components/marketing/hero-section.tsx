@@ -170,29 +170,31 @@ export function HeroSection() {
   };
 
   return (
-    <section className="mx-auto grid max-w-7xl gap-8 px-4 py-16 lg:grid-cols-[1.2fr_0.8fr] lg:py-24">
-      <div>
-        <Badge className="reveal-up border-accent/30 bg-accent/10 text-accent">
-          <Sparkles className="mr-2 h-3.5 w-3.5" />
-          Deriv execution, FixCapital intelligence
-        </Badge>
-        <h1 className="reveal-up reveal-delay-1 mt-6 max-w-4xl text-5xl font-semibold tracking-tight text-white md:text-6xl">
-          Copy proven traders, deploy bots, and manage risk from one trading cockpit.
+    <section className="mx-auto grid max-w-7xl gap-6 px-4 py-12 sm:gap-8 sm:py-16 lg:grid-cols-[1.2fr_0.8fr] lg:py-24">
+      <div className="text-left">
+        <div className="flex justify-center lg:justify-start">
+          <Badge className="reveal-up border-accent/30 bg-accent/10 text-accent">
+            <Sparkles className="mr-2 h-3.5 w-3.5" />
+            Deriv execution, FixCapital intelligence
+          </Badge>
+        </div>
+        <h1 className="reveal-up reveal-delay-1 mt-6 max-w-4xl text-center text-4xl font-semibold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-left">
+          Use FixCapital to follow traders, automate strategies, and control risk from one platform.
         </h1>
-        <p className="descriptive-copy reveal-up reveal-delay-2 mt-6 max-w-2xl text-lg text-slate-300">
+        <p className="descriptive-copy reveal-up reveal-delay-2 mt-6 max-w-2xl text-center text-base text-slate-300 sm:text-lg lg:mx-0 lg:text-left">
           FixCapital is a neutral SaaS overlay for Deriv accounts. Your funds stay in your own broker account while we handle discovery, automation, analytics, and operator-grade execution workflows.
         </p>
-        <div className="reveal-up reveal-delay-3 mt-8 flex flex-wrap gap-3">
-          <Button type="button" onClick={handleLaunchWorkspace}>
+        <div className="reveal-up reveal-delay-3 mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center lg:justify-start">
+          <Button className="self-center px-5 sm:self-auto sm:w-auto" type="button" onClick={handleLaunchWorkspace}>
             Launch demo workspace
             <MoveRight className="ml-2 h-4 w-4" />
           </Button>
-          <Button type="button" variant="outline" onClick={handleViewPricing}>
+          <Button className="self-center px-5 sm:self-auto sm:w-auto" type="button" variant="outline" onClick={handleViewPricing}>
             View pricing
             <TrendingUp className="ml-2 h-4 w-4" />
           </Button>
         </div>
-        <div className="descriptive-copy mt-10 grid gap-3 text-sm text-slate-300 md:grid-cols-2">
+        <div className="descriptive-copy mt-10 grid gap-3 text-left text-sm text-slate-300 sm:grid-cols-2">
           {features.map((feature) => {
             const Icon = feature.icon;
 
@@ -207,16 +209,16 @@ export function HeroSection() {
           })}
         </div>
       </div>
-      <div className="reveal-up reveal-delay-2 float-slow panel relative overflow-hidden p-6">
+      <div className="reveal-up reveal-delay-2 float-slow panel relative overflow-hidden p-4 sm:p-6">
         <div className="absolute inset-0 bg-grid bg-[length:28px_28px] opacity-20" />
         <div className="relative space-y-4">
-          <div className="panel-hover flex items-center justify-between rounded-2xl border border-border/70 bg-slate-950/40 p-4">
-            <div>
+          <div className="panel-hover flex flex-col items-start gap-3 rounded-2xl border border-border/70 bg-slate-950/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-left">
               <p className="descriptive-copy flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-slate-400">
                 <TrendingUp className="h-3.5 w-3.5" />
                 Monthly copied volume
               </p>
-              <p className="price-copy mt-2 text-3xl font-semibold text-white">$3.84M</p>
+              <p className="price-copy mt-2 text-2xl font-semibold text-white sm:text-3xl">$3.84M</p>
             </div>
             <span className="pulse-soft rounded-full bg-success/15 px-3 py-1 font-secondary text-xs text-success">+18.2%</span>
           </div>
@@ -241,17 +243,17 @@ export function HeroSection() {
             <span>CFDs, multipliers, and synthetic markets involve substantial risk. Past performance is not indicative of future results.</span>
           </div>
           <div className="panel-hover reveal-up reveal-delay-3 rounded-3xl border border-border/70 bg-slate-950/35 p-4">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
+            <div className="mb-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-left">
                 <p className="descriptive-copy text-xs uppercase tracking-[0.24em] text-slate-400">Market snapshot</p>
                 <h3 className="mt-2 text-lg font-semibold text-white">Ask and bid prices</h3>
               </div>
-              <span className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 font-secondary text-xs text-accent">
+              <span className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 font-secondary text-xs text-accent sm:self-auto">
                 {lastUpdatedLabel}
               </span>
             </div>
             {quoteFeedStatus === "fallback" ? (
-              <div className="mb-4 rounded-2xl border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
+              <div className="descriptive-copy mb-4 rounded-2xl border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
                 Live Deriv ticks are temporarily unavailable, so this board is showing an updating indicative snapshot until the feed resumes.
               </div>
             ) : null}
@@ -282,16 +284,16 @@ export function HeroSection() {
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      <div>
+                      <div className="text-left">
                         <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Ask</p>
-                        <div className={`price-copy mt-1 flex items-center gap-2 text-base font-semibold ${askPresentation.className}`}>
+                        <div className={`price-copy mt-1 flex items-center justify-center gap-2 text-base font-semibold lg:justify-start ${askPresentation.className}`}>
                           <AskIcon className="h-4 w-4" />
                           <span>{quote.ask}</span>
                         </div>
                       </div>
-                      <div>
+                      <div className="text-left">
                         <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Bid</p>
-                        <div className={`price-copy mt-1 flex items-center gap-2 text-base font-semibold ${bidPresentation.className}`}>
+                        <div className={`price-copy mt-1 flex items-center justify-center gap-2 text-base font-semibold lg:justify-start ${bidPresentation.className}`}>
                           <BidIcon className="h-4 w-4" />
                           <span>{quote.bid}</span>
                         </div>
