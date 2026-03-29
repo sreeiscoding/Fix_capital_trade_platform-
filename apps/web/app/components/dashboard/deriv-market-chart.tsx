@@ -15,10 +15,28 @@ type MarketHistoryResponse = {
   points: MarketHistoryPoint[];
 };
 
+type DerivHistoryMessage = {
+  msg_type?: string;
+  history?: {
+    prices?: Array<number | string>;
+    times?: number[];
+  };
+  tick?: {
+    quote?: number;
+    epoch?: number;
+  };
+  error?: {
+    message?: string;
+  };
+};
+
 type DerivMarketChartProps = {
   symbol: string;
   label: string;
 };
+
+const DERIV_PUBLIC_WS_URL = process.env.NEXT_PUBLIC_DERIV_WS_URL ?? "wss://ws.derivws.com/websockets/v3";
+const DERIV_PUBLIC_APP_ID = process.env.NEXT_PUBLIC_DERIV_APP_ID ?? "1089";
 
 function buildSparklinePath(points: MarketHistoryPoint[], width: number, height: number) {
   if (points.length === 0) {
@@ -36,6 +54,24 @@ function buildSparklinePath(points: MarketHistoryPoint[], width: number, height:
       return `${index === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(" ");
+}
+
+function normalizeHistoryPoints(prices: Array<number | string>, times: number[]) {
+  return times
+    .map((time, index) => {
+      const rawPrice = prices[index];
+      const value = typeof rawPrice === "number" ? rawPrice : Number(rawPrice);
+
+      if (!Number.isFinite(value)) {
+        return null;
+      }
+
+      return {
+        time,
+        value
+      };
+    })
+    .filter((point): point is MarketHistoryPoint => point !== null);
 }
 
 export function DerivMarketChart({ symbol, label }: DerivMarketChartProps) {
@@ -120,10 +156,12 @@ export function DerivMarketChart({ symbol, label }: DerivMarketChartProps) {
 
   useEffect(() => {
     let active = true;
+    let ws: WebSocket | null = null;
+    let fallbackInterval: number | null = null;
+    let fallbackStarted = false;
+    let receivedLiveData = false;
 
-    const loadHistory = async () => {
-      setStatus((current) => (current === "live" || current === "fallback" ? current : "loading"));
-
+    const loadFallbackHistory = async () => {
       try {
         const response = await apiRequest<MarketHistoryResponse>(`/api/v1/deriv/market-history?symbol=${encodeURIComponent(symbol)}&count=120`);
         if (!active) {
@@ -131,7 +169,7 @@ export function DerivMarketChart({ symbol, label }: DerivMarketChartProps) {
         }
 
         setPoints(response.points);
-        setStatus(response.source);
+        setStatus(response.source === "live" ? "live" : "fallback");
       } catch {
         if (!active) {
           return;
@@ -141,17 +179,101 @@ export function DerivMarketChart({ symbol, label }: DerivMarketChartProps) {
       }
     };
 
+    const startFallback = () => {
+      if (!active || fallbackStarted || receivedLiveData) {
+        return;
+      }
+
+      fallbackStarted = true;
+      void loadFallbackHistory();
+      fallbackInterval = window.setInterval(() => {
+        void loadFallbackHistory();
+      }, 5000);
+    };
+
     setPoints([]);
     setStatus("loading");
-    void loadHistory();
 
-    const interval = window.setInterval(() => {
-      void loadHistory();
-    }, 5000);
+    const liveTimeout = window.setTimeout(() => {
+      if (!receivedLiveData) {
+        startFallback();
+      }
+    }, 6000);
+
+    try {
+      ws = new window.WebSocket(`${DERIV_PUBLIC_WS_URL}?app_id=${DERIV_PUBLIC_APP_ID}`);
+
+      ws.onopen = () => {
+        ws?.send(
+          JSON.stringify({
+            ticks_history: symbol,
+            adjust_start_time: 1,
+            end: "latest",
+            count: 120,
+            style: "ticks",
+            subscribe: 1
+          })
+        );
+      };
+
+      ws.onmessage = (event) => {
+        if (!active) {
+          return;
+        }
+
+        try {
+          const message = JSON.parse(String(event.data)) as DerivHistoryMessage;
+
+          if (message.error) {
+            startFallback();
+            return;
+          }
+
+          if (message.msg_type === "history" && message.history?.prices && message.history.times) {
+            const nextPoints = normalizeHistoryPoints(message.history.prices, message.history.times);
+            if (nextPoints.length > 0) {
+              receivedLiveData = true;
+              setPoints(nextPoints);
+              setStatus("live");
+            }
+            return;
+          }
+
+          if (message.msg_type === "tick" && typeof message.tick?.quote === "number") {
+            const nextPoint = {
+              time: Math.floor((message.tick.epoch ?? Date.now() / 1000)),
+              value: message.tick.quote
+            };
+
+            receivedLiveData = true;
+            setStatus("live");
+            setPoints((current) => [...current.slice(-119), nextPoint]);
+          }
+        } catch {
+          startFallback();
+        }
+      };
+
+      ws.onerror = () => {
+        startFallback();
+      };
+
+      ws.onclose = () => {
+        if (!receivedLiveData) {
+          startFallback();
+        }
+      };
+    } catch {
+      startFallback();
+    }
 
     return () => {
       active = false;
-      window.clearInterval(interval);
+      window.clearTimeout(liveTimeout);
+      if (fallbackInterval) {
+        window.clearInterval(fallbackInterval);
+      }
+      ws?.close();
     };
   }, [symbol]);
 
@@ -208,7 +330,7 @@ export function DerivMarketChart({ symbol, label }: DerivMarketChartProps) {
             }`}
           >
             <Activity className="mr-2 h-3.5 w-3.5" />
-            {status === "live" ? "Live Deriv feed" : status === "loading" ? "Loading Deriv data" : "Indicative fallback"}
+            {status === "live" ? "Live Deriv feed" : status === "loading" ? "Connecting to Deriv" : "Indicative fallback"}
           </span>
           <p className="descriptive-copy flex items-center gap-2 text-xs text-slate-400 sm:justify-end">
             <RefreshCw className="h-3.5 w-3.5" />

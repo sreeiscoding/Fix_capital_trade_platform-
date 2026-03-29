@@ -39,10 +39,11 @@ export type MarketQuoteSnapshot = {
   bid: string;
   mid: string;
   updatedAt: string;
+  source: "live" | "fallback";
 };
 
 export type MarketQuoteFeed = {
-  source: "live" | "fallback";
+  source: "live" | "mixed" | "fallback";
   quotes: MarketQuoteSnapshot[];
 };
 
@@ -107,27 +108,29 @@ function findMarket(symbol: string) {
   return DEFAULT_MARKETS.find((market) => market.symbol === symbol) ?? DEFAULT_MARKETS[0];
 }
 
+function buildFallbackQuote(market: MarketQuoteConfig, now = Date.now()): MarketQuoteSnapshot {
+  const seed = hashSymbol(market.symbol);
+  const wave = Math.sin(now / 2500 + seed) * Math.max(market.fallbackMid * 0.00018, 0.025);
+  const drift = Math.cos(now / 4200 + seed / 5) * Math.max(market.fallbackMid * 0.00007, 0.012);
+  const mid = market.fallbackMid + wave + drift;
+  const spread = inferSpread(market.symbol, market.decimals);
+  const ask = mid + spread / 2;
+  const bid = mid - spread / 2;
+
+  return {
+    symbol: market.symbol,
+    label: market.label,
+    ask: formatWithPrecision(ask, market.decimals),
+    bid: formatWithPrecision(bid, market.decimals),
+    mid: formatWithPrecision(mid, market.decimals),
+    updatedAt: new Date(now).toISOString(),
+    source: "fallback"
+  };
+}
+
 function buildFallbackQuotes() {
   const now = Date.now();
-
-  return DEFAULT_MARKETS.map((market) => {
-    const seed = hashSymbol(market.symbol);
-    const wave = Math.sin(now / 2500 + seed) * Math.max(market.fallbackMid * 0.00018, 0.025);
-    const drift = Math.cos(now / 4200 + seed / 5) * Math.max(market.fallbackMid * 0.00007, 0.012);
-    const mid = market.fallbackMid + wave + drift;
-    const spread = inferSpread(market.symbol, market.decimals);
-    const ask = mid + spread / 2;
-    const bid = mid - spread / 2;
-
-    return {
-      symbol: market.symbol,
-      label: market.label,
-      ask: formatWithPrecision(ask, market.decimals),
-      bid: formatWithPrecision(bid, market.decimals),
-      mid: formatWithPrecision(mid, market.decimals),
-      updatedAt: new Date(now).toISOString()
-    };
-  });
+  return DEFAULT_MARKETS.map((market) => buildFallbackQuote(market, now));
 }
 
 function buildFallbackHistory(symbol: string, count: number) {
@@ -149,13 +152,35 @@ function buildFallbackHistory(symbol: string, count: number) {
 }
 
 async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
-  return await new Promise<MarketQuoteSnapshot[]>((resolve, reject) => {
+  return await new Promise<Map<string, MarketQuoteSnapshot>>((resolve, reject) => {
     const connection = new WebSocket(`${env.DERIV_WS_URL}?app_id=${env.DERIV_APP_ID}`);
     const quotes = new Map<string, MarketQuoteSnapshot>();
-    const timeout = setTimeout(() => {
+    let settled = false;
+
+    const settle = (value?: Map<string, MarketQuoteSnapshot>, error?: Error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
       cleanup();
-      reject(new Error("Timed out while fetching live market quotes"));
-    }, 7000);
+
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(value ?? new Map<string, MarketQuoteSnapshot>());
+    };
+
+    const timeout = setTimeout(() => {
+      if (quotes.size > 0) {
+        settle(new Map(quotes));
+        return;
+      }
+
+      settle(undefined, new Error("Timed out while fetching live market quotes"));
+    }, 4500);
 
     const cleanup = () => {
       clearTimeout(timeout);
@@ -176,8 +201,12 @@ async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
         const message = JSON.parse(String(payload)) as DerivTickMessage;
 
         if (message.error) {
-          cleanup();
-          reject(new Error(message.error.message ?? "Failed to fetch live market quotes"));
+          if (quotes.size > 0) {
+            settle(new Map(quotes));
+            return;
+          }
+
+          settle(undefined, new Error(message.error.message ?? "Failed to fetch live market quotes"));
           return;
         }
 
@@ -185,7 +214,7 @@ async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
           return;
         }
 
-        const tick = message.tick!;
+        const tick = message.tick;
         const quote = tick.quote as number;
         const market = markets.find((entry) => entry.symbol === tick.symbol);
         if (!market) {
@@ -204,26 +233,36 @@ async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
           ask: formatWithPrecision(ask, decimals),
           bid: formatWithPrecision(bid, decimals),
           mid: formatWithPrecision(quote, decimals),
-          updatedAt: new Date((tick.epoch ?? Date.now() / 1000) * 1000).toISOString()
+          updatedAt: new Date((tick.epoch ?? Date.now() / 1000) * 1000).toISOString(),
+          source: "live"
         });
 
         if (quotes.size === markets.length) {
-          const ordered = markets.flatMap((entry) => {
-            const quote = quotes.get(entry.symbol);
-            return quote ? [quote] : [];
-          });
-          cleanup();
-          resolve(ordered);
+          settle(new Map(quotes));
         }
       } catch (error) {
-        cleanup();
-        reject(error instanceof Error ? error : new Error("Failed to parse live market quote payload"));
+        if (quotes.size > 0) {
+          settle(new Map(quotes));
+          return;
+        }
+
+        settle(undefined, error instanceof Error ? error : new Error("Failed to parse live market quote payload"));
       }
     });
 
     connection.on("error", (error) => {
-      cleanup();
-      reject(error instanceof Error ? error : new Error("Live market quote connection failed"));
+      if (quotes.size > 0) {
+        settle(new Map(quotes));
+        return;
+      }
+
+      settle(undefined, error instanceof Error ? error : new Error("Live market quote connection failed"));
+    });
+
+    connection.on("close", () => {
+      if (!settled && quotes.size > 0) {
+        settle(new Map(quotes));
+      }
     });
   });
 }
@@ -231,9 +270,26 @@ async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
 async function fetchDerivTickHistory(symbol: string, count: number) {
   return await new Promise<MarketHistoryPoint[]>((resolve, reject) => {
     const connection = new WebSocket(`${env.DERIV_WS_URL}?app_id=${env.DERIV_APP_ID}`);
-    const timeout = setTimeout(() => {
+    let settled = false;
+
+    const settle = (points?: MarketHistoryPoint[], error?: Error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
       cleanup();
-      reject(new Error("Timed out while fetching market history"));
+
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(points ?? []);
+    };
+
+    const timeout = setTimeout(() => {
+      settle(undefined, new Error("Timed out while fetching market history"));
     }, 7000);
 
     const cleanup = () => {
@@ -261,8 +317,7 @@ async function fetchDerivTickHistory(symbol: string, count: number) {
         const message = JSON.parse(String(payload)) as DerivHistoryMessage;
 
         if (message.error) {
-          cleanup();
-          reject(new Error(message.error.message ?? "Failed to fetch market history"));
+          settle(undefined, new Error(message.error.message ?? "Failed to fetch market history"));
           return;
         }
 
@@ -286,17 +341,14 @@ async function fetchDerivTickHistory(symbol: string, count: number) {
           })
           .filter((point): point is MarketHistoryPoint => point !== null);
 
-        cleanup();
-        resolve(points);
+        settle(points);
       } catch (error) {
-        cleanup();
-        reject(error instanceof Error ? error : new Error("Failed to parse market history payload"));
+        settle(undefined, error instanceof Error ? error : new Error("Failed to parse market history payload"));
       }
     });
 
     connection.on("error", (error) => {
-      cleanup();
-      reject(error instanceof Error ? error : new Error("Market history connection failed"));
+      settle(undefined, error instanceof Error ? error : new Error("Market history connection failed"));
     });
   });
 }
@@ -307,11 +359,16 @@ export async function getLiveMarketQuotes(): Promise<MarketQuoteFeed> {
   }
 
   try {
-    const quotes = await fetchDerivTicks(DEFAULT_MARKETS);
+    const liveQuotes = await fetchDerivTicks(DEFAULT_MARKETS);
+    const now = Date.now();
+    const quotes = DEFAULT_MARKETS.map((market) => liveQuotes.get(market.symbol) ?? buildFallbackQuote(market, now));
+    const liveCount = quotes.filter((quote) => quote.source === "live").length;
+
     const data: MarketQuoteFeed = {
-      source: "live",
+      source: liveCount === 0 ? "fallback" : liveCount === quotes.length ? "live" : "mixed",
       quotes
     };
+
     quoteCache = {
       data,
       expiresAt: Date.now() + LIVE_CACHE_TTL_MS

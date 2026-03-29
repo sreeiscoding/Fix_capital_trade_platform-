@@ -10,7 +10,7 @@ import { apiRequest } from "@/lib/api";
 import { fallbackMarketQuotes, type MarketQuote } from "@/lib/market-quotes";
 
 type MarketQuoteResponse = {
-  source: "live" | "fallback";
+  source: "live" | "mixed" | "fallback";
   quotes: MarketQuote[];
 };
 
@@ -91,10 +91,42 @@ const marketThemes = [
   }
 ] as const;
 
+function getFeedPresentation(status: "loading" | "live" | "mixed" | "fallback") {
+  if (status === "live") {
+    return {
+      label: "Live",
+      className: "text-success",
+      badgeClass: "bg-success/10 text-success"
+    };
+  }
+
+  if (status === "mixed") {
+    return {
+      label: "Mixed",
+      className: "text-accent",
+      badgeClass: "bg-accent/10 text-accent"
+    };
+  }
+
+  if (status === "loading") {
+    return {
+      label: "Loading",
+      className: "text-accent",
+      badgeClass: "bg-accent/10 text-accent"
+    };
+  }
+
+  return {
+    label: "Fallback",
+    className: "text-warning",
+    badgeClass: "bg-warning/10 text-warning"
+  };
+}
+
 export default function MarketsPage() {
   const [marketQuotes, setMarketQuotes] = useState<MarketQuote[]>(fallbackMarketQuotes);
   const [selectedSymbol, setSelectedSymbol] = useState<string>(fallbackMarketQuotes[0]?.symbol ?? "frxEURUSD");
-  const [feedStatus, setFeedStatus] = useState<"loading" | "live" | "fallback">("loading");
+  const [feedStatus, setFeedStatus] = useState<"loading" | "live" | "mixed" | "fallback">("loading");
 
   useEffect(() => {
     let active = true;
@@ -140,6 +172,8 @@ export default function MarketsPage() {
   }, [marketQuotes, selectedSymbol]);
 
   const selectedDetail = marketDetails[selectedMarket?.symbol ?? "frxEURUSD"] ?? marketDetails.frxEURUSD;
+  const boardPresentation = getFeedPresentation(feedStatus);
+  const selectedPresentation = getFeedPresentation(feedStatus === "loading" ? "loading" : selectedMarket?.source ?? "fallback");
 
   const updatedLabel = useMemo(() => {
     if (!selectedMarket?.updatedAt || selectedMarket.updatedAt === new Date(0).toISOString()) {
@@ -152,7 +186,15 @@ export default function MarketsPage() {
       second: "2-digit"
     });
 
-    return feedStatus === "live" ? `Live ${time}` : `Indicative ${time}`;
+    if (feedStatus === "live") {
+      return `Live ${time}`;
+    }
+
+    if (feedStatus === "mixed") {
+      return `Mixed ${time}`;
+    }
+
+    return `Indicative ${time}`;
   }, [feedStatus, selectedMarket]);
 
   const chartSourceLabel = selectedDetail.chartProvider === "deriv" ? "Deriv native chart" : "TradingView chart";
@@ -179,18 +221,16 @@ export default function MarketsPage() {
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="panel-muted p-4 text-center sm:text-left">
-                <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Feed status</p>
-                <p className={`mt-2 text-lg font-semibold ${feedStatus === "live" ? "text-success" : feedStatus === "loading" ? "text-accent" : "text-warning"}`}>
-                  {feedStatus === "live" ? "Live" : feedStatus === "loading" ? "Loading" : "Fallback"}
-                </p>
+                <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Board status</p>
+                <p className={`mt-2 text-lg font-semibold ${boardPresentation.className}`}>{boardPresentation.label}</p>
+              </div>
+              <div className="panel-muted p-4 text-center sm:text-left">
+                <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Selected market</p>
+                <p className={`mt-2 text-lg font-semibold ${selectedPresentation.className}`}>{selectedPresentation.label}</p>
               </div>
               <div className="panel-muted p-4 text-center sm:text-left">
                 <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Updated</p>
                 <p className="mt-2 text-lg font-semibold text-white">{updatedLabel}</p>
-              </div>
-              <div className="panel-muted p-4 text-center sm:text-left">
-                <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Chart source</p>
-                <p className="mt-2 text-lg font-semibold text-white">{chartSourceLabel}</p>
               </div>
             </div>
           </div>
@@ -205,10 +245,16 @@ export default function MarketsPage() {
                 <h2 className="mt-1 text-2xl font-semibold text-white">Choose your market</h2>
               </div>
             </div>
+            {feedStatus === "mixed" ? (
+              <div className="descriptive-copy rounded-2xl border border-accent/20 bg-accent/10 px-4 py-3 text-xs text-accent">
+                Some instruments are live right now while closed traditional markets are shown with indicative prices. Synthetic indices should keep their own live status.
+              </div>
+            ) : null}
             <div className="space-y-3">
               {marketQuotes.map((quote) => {
                 const isActive = quote.symbol === selectedSymbol;
                 const quoteDetail = marketDetails[quote.symbol] ?? marketDetails.frxEURUSD;
+                const quotePresentation = getFeedPresentation(feedStatus === "loading" ? "loading" : quote.source);
 
                 return (
                   <button
@@ -231,8 +277,8 @@ export default function MarketsPage() {
                           </span>
                         </div>
                       </div>
-                      <span className={`rounded-full px-2 py-1 font-secondary text-[11px] ${feedStatus === "live" ? "bg-success/10 text-success" : feedStatus === "loading" ? "bg-accent/10 text-accent" : "bg-warning/10 text-warning"}`}>
-                        {feedStatus === "live" ? "Live" : feedStatus === "loading" ? "Loading" : "Fallback"}
+                      <span className={`rounded-full px-2 py-1 font-secondary text-[11px] ${quotePresentation.badgeClass}`}>
+                        {quotePresentation.label}
                       </span>
                     </div>
                     <div className="mt-4 grid grid-cols-3 gap-3">

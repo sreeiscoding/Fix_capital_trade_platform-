@@ -30,12 +30,12 @@ const features: Array<{ icon: LucideIcon; label: string; delayClass: string }> =
   { icon: BrainCircuit, label: "AI-assisted signals, monitoring, and alerts", delayClass: "reveal-delay-5" }
 ];
 
-type QuoteFeedStatus = "loading" | "live" | "fallback";
+type QuoteFeedStatus = "loading" | "live" | "mixed" | "fallback";
 type PriceDirection = "up" | "down" | "flat";
 type QuoteDirectionMap = Record<string, { ask: PriceDirection; bid: PriceDirection }>;
 
 type MarketQuoteResponse = {
-  source: "live" | "fallback";
+  source: "live" | "mixed" | "fallback";
   quotes: MarketQuote[];
 };
 
@@ -79,6 +79,34 @@ function getDirectionPresentation(direction: PriceDirection) {
   };
 }
 
+function getFeedPresentation(status: QuoteFeedStatus) {
+  if (status === "live") {
+    return {
+      label: "Live",
+      className: "bg-success/10 text-success"
+    };
+  }
+
+  if (status === "mixed") {
+    return {
+      label: "Mixed",
+      className: "bg-accent/10 text-accent"
+    };
+  }
+
+  if (status === "loading") {
+    return {
+      label: "Loading",
+      className: "bg-accent/10 text-accent"
+    };
+  }
+
+  return {
+    label: "Fallback",
+    className: "bg-warning/10 text-warning"
+  };
+}
+
 export function HeroSection() {
   const router = useRouter();
   const { user } = useAuth();
@@ -108,6 +136,10 @@ export function HeroSection() {
 
     if (quoteFeedStatus === "live") {
       return `Live ${formattedTime}`;
+    }
+
+    if (quoteFeedStatus === "mixed") {
+      return `Mixed ${formattedTime}`;
     }
 
     if (quoteFeedStatus === "fallback") {
@@ -140,7 +172,7 @@ export function HeroSection() {
         setQuoteDirections(nextDirections);
         setMarketQuotes(response.quotes);
         setQuoteFeedStatus(response.source);
-      } catch (error) {
+      } catch {
         if (!active) {
           return;
         }
@@ -252,6 +284,11 @@ export function HeroSection() {
                 {lastUpdatedLabel}
               </span>
             </div>
+            {quoteFeedStatus === "mixed" ? (
+              <div className="descriptive-copy mb-4 rounded-2xl border border-accent/20 bg-accent/10 px-3 py-2 text-xs text-accent">
+                Some instruments are streaming live while others are using indicative prices, which is common when 24/7 Deriv markets are active but traditional markets are closed.
+              </div>
+            ) : null}
             {quoteFeedStatus === "fallback" ? (
               <div className="descriptive-copy mb-4 rounded-2xl border border-warning/20 bg-warning/10 px-3 py-2 text-xs text-warning">
                 Live Deriv ticks are temporarily unavailable, so this board is showing an updating indicative snapshot until the feed resumes.
@@ -265,6 +302,7 @@ export function HeroSection() {
                 const bidPresentation = getDirectionPresentation(bidDirection);
                 const AskIcon = askPresentation.icon;
                 const BidIcon = bidPresentation.icon;
+                const quoteStatus = quoteFeedStatus === "loading" ? getFeedPresentation("loading") : getFeedPresentation(quote.source);
 
                 return (
                   <div
@@ -273,14 +311,8 @@ export function HeroSection() {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <p className="font-semibold text-white">{quote.label}</p>
-                      <span className={`rounded-full px-2 py-1 font-secondary text-[11px] ${
-                        quoteFeedStatus === "live"
-                          ? "bg-success/10 text-success"
-                          : quoteFeedStatus === "loading"
-                            ? "bg-accent/10 text-accent"
-                            : "bg-warning/10 text-warning"
-                      }`}>
-                        {quoteFeedStatus === "live" ? "Live" : quoteFeedStatus === "loading" ? "Loading" : "Fallback"}
+                      <span className={`rounded-full px-2 py-1 font-secondary text-[11px] ${quoteStatus.className}`}>
+                        {quoteStatus.label}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
