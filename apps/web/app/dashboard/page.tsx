@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRightLeft, Bot, Link as LinkIcon, ShieldAlert } from "lucide-react";
 import { DashboardShell } from "@/components/layout/dashboard-shell";
@@ -47,7 +47,7 @@ type DashboardResponse = {
   signals: Array<{ symbol: string; direction: string; probability: number }>;
 };
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { token, ready, user } = useAuth();
@@ -135,7 +135,7 @@ export default function DashboardPage() {
                     <div key={account.id} className="panel-muted flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-medium text-white">{account.loginId}</p>
-                        <p className="text-xs text-slate-400">{account.environment} • {account.currency ?? "USD"}</p>
+                        <p className="text-xs text-slate-400">{account.environment} â€¢ {account.currency ?? "USD"}</p>
                       </div>
                       <p className="text-sm text-slate-200">{formatCurrency(account.balance, account.currency ?? "USD")}</p>
                     </div>
@@ -199,5 +199,13 @@ export default function DashboardPage() {
         <Card>Loading dashboard...</Card>
       )}
     </DashboardShell>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
   );
 }
