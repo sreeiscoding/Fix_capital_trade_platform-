@@ -8,11 +8,15 @@ import {
   listDerivAccounts,
   unlinkDerivAccount
 } from "./deriv-oauth.service.js";
-import { getLiveMarketQuotes, getMarketHistory } from "./market-data.service.js";
+import { getExpandedMarketWatchlist, getLiveMarketQuotes, getMarketHistory } from "./market-data.service.js";
 
 export async function derivRoutes(app: FastifyInstance) {
   app.get("/market-quotes", async () => {
     return await getLiveMarketQuotes();
+  });
+
+  app.get("/market-watchlist", async () => {
+    return await getExpandedMarketWatchlist();
   });
 
   app.get("/market-history", async (request) => {

@@ -1,7 +1,7 @@
 "use client";
 
-import { Activity, ArrowUpRight, Clock3, Globe2, Radar, ShieldAlert, Sparkles, TrendingUp } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Activity, ArrowDownRight, ArrowUpRight, Clock3, Globe2, Minus, Radar, ShieldAlert, Sparkles, TrendingUp } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DerivMarketChart } from "@/components/dashboard/deriv-market-chart";
 import { TradingViewWidget } from "@/components/dashboard/tradingview-widget";
 import { SiteFooter } from "@/components/layout/site-footer";
@@ -22,6 +22,26 @@ type MarketDetail = {
   context: string;
   checklist: string[];
 };
+
+type QuoteFeedStatus = "loading" | "live" | "mixed" | "fallback";
+type PriceDirection = "up" | "down" | "flat";
+type QuoteDirectionMap = Record<string, { ask: PriceDirection; bid: PriceDirection; mid: PriceDirection }>;
+
+type DerivTickMessage = {
+  msg_type?: string;
+  tick?: {
+    symbol?: string;
+    quote?: number;
+    pip_size?: number;
+    epoch?: number;
+  };
+  error?: {
+    message?: string;
+  };
+};
+
+const DERIV_PUBLIC_WS_URL = process.env.NEXT_PUBLIC_DERIV_WS_URL ?? "wss://ws.derivws.com/websockets/v3";
+const DERIV_PUBLIC_APP_ID = process.env.NEXT_PUBLIC_DERIV_APP_ID ?? "1089";
 
 const marketDetails: Record<string, MarketDetail> = {
   frxEURUSD: {
@@ -91,7 +111,47 @@ const marketThemes = [
   }
 ] as const;
 
-function getFeedPresentation(status: "loading" | "live" | "mixed" | "fallback") {
+
+function getPriceDirection(previousValue: string | undefined, nextValue: string): PriceDirection {
+  const previous = Number.parseFloat(previousValue ?? "");
+  const next = Number.parseFloat(nextValue);
+
+  if (!Number.isFinite(previous) || !Number.isFinite(next)) {
+    return "flat";
+  }
+
+  if (next > previous) {
+    return "up";
+  }
+
+  if (next < previous) {
+    return "down";
+  }
+
+  return "flat";
+}
+
+function getDirectionPresentation(direction: PriceDirection) {
+  if (direction === "up") {
+    return {
+      icon: ArrowUpRight,
+      className: "text-success"
+    };
+  }
+
+  if (direction === "down") {
+    return {
+      icon: ArrowDownRight,
+      className: "text-destructive"
+    };
+  }
+
+  return {
+    icon: Minus,
+    className: "text-slate-500"
+  };
+}
+function getFeedPresentation(status: QuoteFeedStatus) {
   if (status === "live") {
     return {
       label: "Live",
@@ -123,23 +183,125 @@ function getFeedPresentation(status: "loading" | "live" | "mixed" | "fallback") 
   };
 }
 
+function isDerivNativeMarket(quote: MarketQuote) {
+  return quote.symbol.startsWith("R_") || /HZ\d+V$/i.test(quote.symbol) || /step index|volatility/i.test(quote.label);
+}
+
+function getDynamicDerivDetail(quote: MarketQuote): MarketDetail {
+  if (/step index/i.test(quote.label)) {
+    return {
+      chartProvider: "deriv",
+      category: "Synthetic step index",
+      headline: `Use ${quote.label} when you want a structured synthetic market for testing trigger logic, execution speed, and rule-based reactions.`,
+      context: `${quote.label} can help you validate whether your bot conditions and copy settings stay disciplined in a market that moves in a controlled synthetic pattern on Deriv.`,
+      checklist: [
+        "Start with demo sizing before enabling live execution",
+        "Check whether your strategy depends on sudden breaks or steady moves",
+        "Keep stop conditions visible before increasing allocation"
+      ]
+    };
+  }
+
+  return {
+    chartProvider: "deriv",
+    category: /volatility/i.test(quote.label) ? "Synthetic volatility index" : "Synthetic index",
+    headline: `Use ${quote.label} when you want a 24/7 Deriv-native synthetic market for testing automation, reaction speed, and risk rules.`,
+    context: `${quote.label} is better viewed on Deriv data directly, so you can evaluate live movement, risk exposure, and execution timing without relying on unsupported external chart symbols.`,
+    checklist: [
+      "Validate the strategy on demo before scaling risk",
+      "Watch spread, pace, and candle behavior before enabling copying",
+      "Use account-level drawdown and stop conditions from the start"
+    ]
+  };
+}
+
+function getMarketDetail(quote: MarketQuote | undefined) {
+  if (!quote) {
+    return marketDetails.frxEURUSD;
+  }
+
+  const existing = marketDetails[quote.symbol];
+  if (existing) {
+    return existing;
+  }
+
+  if (isDerivNativeMarket(quote)) {
+    return getDynamicDerivDetail(quote);
+  }
+
+  return marketDetails.frxEURUSD;
+}
+
+function inferSpread(symbol: string, pipSize: number) {
+  const pipUnit = 10 ** -pipSize;
+
+  if (symbol.startsWith("R_") || /HZ\d+V$/i.test(symbol) || /STEP/i.test(symbol)) {
+    return pipUnit * 6;
+  }
+
+  return pipUnit * 4;
+}
+
+function mergeQuotes(currentQuotes: MarketQuote[], incomingQuotes: MarketQuote[]) {
+  const currentMap = new Map(currentQuotes.map((quote) => [quote.symbol, quote]));
+
+  return incomingQuotes.map((incoming) => {
+    const current = currentMap.get(incoming.symbol);
+    if (!current) {
+      return incoming;
+    }
+
+    if (current.source === "live" && incoming.source === "fallback") {
+      return {
+        ...incoming,
+        ask: current.ask,
+        bid: current.bid,
+        mid: current.mid,
+        updatedAt: current.updatedAt,
+        source: current.source
+      };
+    }
+
+    return incoming;
+  });
+}
+
+function deriveFeedStatus(quotes: MarketQuote[], isInitialLoading: boolean): QuoteFeedStatus {
+  if (isInitialLoading && quotes.length === 0) {
+    return "loading";
+  }
+
+  const liveCount = quotes.filter((quote) => quote.source === "live").length;
+  if (liveCount === 0) {
+    return "fallback";
+  }
+
+  if (liveCount === quotes.length) {
+    return "live";
+  }
+
+  return "mixed";
+}
+
 export default function MarketsPage() {
   const [marketQuotes, setMarketQuotes] = useState<MarketQuote[]>(fallbackMarketQuotes);
   const [selectedSymbol, setSelectedSymbol] = useState<string>(fallbackMarketQuotes[0]?.symbol ?? "frxEURUSD");
-  const [feedStatus, setFeedStatus] = useState<"loading" | "live" | "mixed" | "fallback">("loading");
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [quoteDirections, setQuoteDirections] = useState<QuoteDirectionMap>({});
+  const liveSymbolsSeenRef = useRef<Set<string>>(new Set());
+  const previousQuotesRef = useRef<Record<string, MarketQuote>>({});
 
   useEffect(() => {
     let active = true;
 
     const loadQuotes = async () => {
       try {
-        const response = await apiRequest<MarketQuoteResponse>("/api/v1/deriv/market-quotes");
+        const response = await apiRequest<MarketQuoteResponse>("/api/v1/deriv/market-watchlist");
         if (!active || response.quotes.length === 0) {
           return;
         }
 
-        setMarketQuotes(response.quotes);
-        setFeedStatus(response.source);
+        setMarketQuotes((current) => mergeQuotes(current, response.quotes));
         setSelectedSymbol((current) => {
           if (response.quotes.some((quote) => quote.symbol === current)) {
             return current;
@@ -151,15 +313,17 @@ export default function MarketsPage() {
         if (!active) {
           return;
         }
-
-        setFeedStatus("fallback");
+      } finally {
+        if (active) {
+          setIsInitialLoading(false);
+        }
       }
     };
 
     void loadQuotes();
     const interval = window.setInterval(() => {
       void loadQuotes();
-    }, 5000);
+    }, 15000);
 
     return () => {
       active = false;
@@ -167,13 +331,125 @@ export default function MarketsPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (marketQuotes.length === 0) {
+      return;
+    }
+
+    let active = true;
+    const symbols = marketQuotes.map((quote) => quote.symbol);
+    const quoteSocket = new window.WebSocket(`${DERIV_PUBLIC_WS_URL}?app_id=${DERIV_PUBLIC_APP_ID}`);
+    const liveTimeout = window.setTimeout(() => {
+      if (!active) {
+        return;
+      }
+
+      setMarketQuotes((current) =>
+        current.map((quote) =>
+          liveSymbolsSeenRef.current.has(quote.symbol)
+            ? quote
+            : {
+                ...quote,
+                source: quote.source === "live" ? "live" : "fallback"
+              }
+        )
+      );
+    }, 6000);
+
+    quoteSocket.onopen = () => {
+      for (const symbol of symbols) {
+        quoteSocket.send(JSON.stringify({ ticks: symbol, subscribe: 1 }));
+      }
+    };
+
+    quoteSocket.onmessage = (event) => {
+      if (!active) {
+        return;
+      }
+
+      try {
+        const message = JSON.parse(String(event.data)) as DerivTickMessage;
+        const tick = message.tick;
+
+        if (message.msg_type !== "tick" || !tick?.symbol || typeof tick.quote !== "number") {
+          return;
+        }
+
+        liveSymbolsSeenRef.current.add(tick.symbol);
+        const pipSize = tick.pip_size ?? 2;
+        const spread = inferSpread(tick.symbol, pipSize);
+        const ask = (tick.quote + spread / 2).toFixed(Math.max(pipSize, 2));
+        const bid = (tick.quote - spread / 2).toFixed(Math.max(pipSize, 2));
+        const mid = tick.quote.toFixed(Math.max(pipSize, 2));
+        const updatedAt = new Date((tick.epoch ?? Date.now() / 1000) * 1000).toISOString();
+
+        setMarketQuotes((current) =>
+          current.map((quote) =>
+            quote.symbol === tick.symbol
+              ? {
+                  ...quote,
+                  ask,
+                  bid,
+                  mid,
+                  updatedAt,
+                  source: "live"
+                }
+              : quote
+          )
+        );
+      } catch {
+        // Ignore individual message parse issues and continue streaming live ticks.
+      }
+    };
+
+    quoteSocket.onerror = () => {
+      if (!active) {
+        return;
+      }
+
+      setMarketQuotes((current) =>
+        current.map((quote) => ({
+          ...quote,
+          source: liveSymbolsSeenRef.current.has(quote.symbol) ? "live" : "fallback"
+        }))
+      );
+    };
+
+    return () => {
+      active = false;
+      window.clearTimeout(liveTimeout);
+      quoteSocket.close();
+    };
+  }, [marketQuotes.map((quote) => quote.symbol).join("|")]);
+
+
+  useEffect(() => {
+    if (marketQuotes.length === 0) {
+      return;
+    }
+
+    const nextDirections = marketQuotes.reduce<QuoteDirectionMap>((accumulator, quote) => {
+      const previousQuote = previousQuotesRef.current[quote.symbol];
+      accumulator[quote.symbol] = {
+        ask: getPriceDirection(previousQuote?.ask, quote.ask),
+        bid: getPriceDirection(previousQuote?.bid, quote.bid),
+        mid: getPriceDirection(previousQuote?.mid, quote.mid)
+      };
+      return accumulator;
+    }, {});
+
+    previousQuotesRef.current = Object.fromEntries(marketQuotes.map((quote) => [quote.symbol, quote]));
+    setQuoteDirections(nextDirections);
+  }, [marketQuotes]);
+  const feedStatus = useMemo(() => deriveFeedStatus(marketQuotes, isInitialLoading), [marketQuotes, isInitialLoading]);
+
   const selectedMarket = useMemo(() => {
     return marketQuotes.find((quote) => quote.symbol === selectedSymbol) ?? marketQuotes[0] ?? fallbackMarketQuotes[0];
   }, [marketQuotes, selectedSymbol]);
 
-  const selectedDetail = marketDetails[selectedMarket?.symbol ?? "frxEURUSD"] ?? marketDetails.frxEURUSD;
+  const selectedDetail = getMarketDetail(selectedMarket);
   const boardPresentation = getFeedPresentation(feedStatus);
-  const selectedPresentation = getFeedPresentation(feedStatus === "loading" ? "loading" : selectedMarket?.source ?? "fallback");
+  const selectedPresentation = getFeedPresentation(isInitialLoading && !selectedMarket ? "loading" : selectedMarket?.source ?? "fallback");
 
   const updatedLabel = useMemo(() => {
     if (!selectedMarket?.updatedAt || selectedMarket.updatedAt === new Date(0).toISOString()) {
@@ -186,7 +462,7 @@ export default function MarketsPage() {
       second: "2-digit"
     });
 
-    if (feedStatus === "live") {
+    if (selectedMarket.source === "live") {
       return `Live ${time}`;
     }
 
@@ -198,6 +474,13 @@ export default function MarketsPage() {
   }, [feedStatus, selectedMarket]);
 
   const chartSourceLabel = selectedDetail.chartProvider === "deriv" ? "Deriv native chart" : "TradingView chart";
+
+  const handleDerivQuoteUpdate = (quote: { ask: string; bid: string; mid: string; updatedAt: string; source: "live" }) => {
+    liveSymbolsSeenRef.current.add(selectedSymbol);
+    setMarketQuotes((current) =>
+      current.map((entry) => (entry.symbol === selectedSymbol ? { ...entry, ...quote } : entry))
+    );
+  };
 
   return (
     <div className="min-h-screen">
@@ -237,7 +520,7 @@ export default function MarketsPage() {
         </section>
 
         <section className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
-          <div className="panel space-y-4 p-5 sm:p-6">
+          <div className="panel flex h-[920px] min-h-[620px] flex-col p-5 sm:h-[980px] sm:p-6 xl:sticky xl:top-24 xl:h-[calc(100vh-8rem)]">
             <div className="flex items-center gap-3">
               <Globe2 className="h-5 w-5 text-accent" />
               <div>
@@ -247,14 +530,14 @@ export default function MarketsPage() {
             </div>
             {feedStatus === "mixed" ? (
               <div className="descriptive-copy rounded-2xl border border-accent/20 bg-accent/10 px-4 py-3 text-xs text-accent">
-                Some instruments are live right now while closed traditional markets are shown with indicative prices. Synthetic indices should keep their own live status.
+                Some instruments are streaming live while others are still waiting on a fresh tick. Synthetic indices should keep switching back to live as soon as Deriv pushes the next update.
               </div>
             ) : null}
-            <div className="space-y-3">
+            <div className="mt-4 min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-0 scrollbar-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"><div className="space-y-3">
               {marketQuotes.map((quote) => {
                 const isActive = quote.symbol === selectedSymbol;
-                const quoteDetail = marketDetails[quote.symbol] ?? marketDetails.frxEURUSD;
-                const quotePresentation = getFeedPresentation(feedStatus === "loading" ? "loading" : quote.source);
+                const quoteDetail = getMarketDetail(quote);
+                const quotePresentation = getFeedPresentation(isInitialLoading && quote.updatedAt === new Date(0).toISOString() ? "loading" : quote.source);
 
                 return (
                   <button
@@ -282,23 +565,29 @@ export default function MarketsPage() {
                       </span>
                     </div>
                     <div className="mt-4 grid grid-cols-3 gap-3">
-                      <div>
-                        <p className="descriptive-copy text-[10px] uppercase tracking-[0.18em] text-slate-500">Ask</p>
-                        <p className="price-copy mt-1 text-sm font-semibold text-white">{quote.ask}</p>
-                      </div>
-                      <div>
-                        <p className="descriptive-copy text-[10px] uppercase tracking-[0.18em] text-slate-500">Bid</p>
-                        <p className="price-copy mt-1 text-sm font-semibold text-white">{quote.bid}</p>
-                      </div>
-                      <div>
-                        <p className="descriptive-copy text-[10px] uppercase tracking-[0.18em] text-slate-500">Mid</p>
-                        <p className="price-copy mt-1 text-sm font-semibold text-white">{quote.mid}</p>
-                      </div>
+                      {([
+                        ["Ask", quote.ask, quoteDirections[quote.symbol]?.ask ?? "flat"],
+                        ["Bid", quote.bid, quoteDirections[quote.symbol]?.bid ?? "flat"],
+                        ["Mid", quote.mid, quoteDirections[quote.symbol]?.mid ?? "flat"]
+                      ] as const).map(([label, value, direction]) => {
+                        const presentation = getDirectionPresentation(direction);
+                        const Icon = presentation.icon;
+
+                        return (
+                          <div key={label}>
+                            <p className="descriptive-copy text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+                            <div className={`price-copy mt-1 flex items-center gap-1.5 text-sm font-semibold ${presentation.className}`}>
+                              <Icon className="h-3.5 w-3.5" />
+                              <span>{value}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </button>
                 );
               })}
-            </div>
+            </div></div>
           </div>
 
           <div className="grid gap-4">
@@ -316,18 +605,26 @@ export default function MarketsPage() {
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
-                <div className="panel-muted p-4">
-                  <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Ask</p>
-                  <p className="price-copy mt-2 text-xl font-semibold text-white">{selectedMarket?.ask}</p>
-                </div>
-                <div className="panel-muted p-4">
-                  <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Bid</p>
-                  <p className="price-copy mt-2 text-xl font-semibold text-white">{selectedMarket?.bid}</p>
-                </div>
-                <div className="panel-muted p-4">
-                  <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Mid</p>
-                  <p className="price-copy mt-2 text-xl font-semibold text-white">{selectedMarket?.mid}</p>
-                </div>
+                {selectedMarket
+                  ? ([
+                      ["Ask", selectedMarket.ask, quoteDirections[selectedMarket.symbol]?.ask ?? "flat"],
+                      ["Bid", selectedMarket.bid, quoteDirections[selectedMarket.symbol]?.bid ?? "flat"],
+                      ["Mid", selectedMarket.mid, quoteDirections[selectedMarket.symbol]?.mid ?? "flat"]
+                    ] as const).map(([label, value, direction]) => {
+                      const presentation = getDirectionPresentation(direction);
+                      const Icon = presentation.icon;
+
+                      return (
+                        <div key={label} className="panel-muted p-4">
+                          <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
+                          <div className={`price-copy mt-2 flex items-center gap-2 text-xl font-semibold ${presentation.className}`}>
+                            <Icon className="h-4 w-4" />
+                            <span>{value}</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  : null}
               </div>
               <div className="mt-4 rounded-3xl border border-warning/20 bg-warning/10 p-4 text-sm text-warning">
                 <span className="descriptive-copy">
@@ -337,7 +634,11 @@ export default function MarketsPage() {
             </div>
 
             {selectedDetail.chartProvider === "deriv" ? (
-              <DerivMarketChart symbol={selectedMarket?.symbol ?? "R_100"} label={selectedMarket?.label ?? "R_100"} />
+              <DerivMarketChart
+                symbol={selectedMarket?.symbol ?? "R_100"}
+                label={selectedMarket?.label ?? "R_100"}
+                onQuoteUpdate={handleDerivQuoteUpdate}
+              />
             ) : (
               <TradingViewWidget symbol={selectedDetail.tvSymbol ?? "FX:EURUSD"} />
             )}

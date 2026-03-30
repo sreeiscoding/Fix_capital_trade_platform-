@@ -2,6 +2,7 @@ import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
 import { prisma } from "./lib/prisma.js";
 import { redis } from "./lib/redis.js";
+import { setDatabaseStatus, setRedisStatus } from "./lib/runtime-state.js";
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
   return await Promise.race([
@@ -19,6 +20,7 @@ async function start() {
 
   try {
     await withTimeout(prisma.$queryRaw`SELECT 1`, 1500, "Database check");
+    setDatabaseStatus("up");
 
     const [{ seedDemoUser }, { syncMasterTradeMonitors, stopMasterTradeMonitors }] = await Promise.all([
       import("./modules/auth/auth.service.js"),
@@ -44,11 +46,13 @@ async function start() {
       await stopMasterTradeMonitors();
     });
   } catch (error) {
+    setDatabaseStatus("down");
     app.log.warn({ error }, "Database unavailable, starting API in degraded mode");
   }
 
   try {
     await withTimeout(redis.ping(), 1200, "Redis check");
+    setRedisStatus("up");
 
     const [{ botWorker }, { replicationWorker }] = await Promise.all([
       import("./workers/bot.worker.js"),
@@ -63,6 +67,7 @@ async function start() {
       app.log.error({ jobId: job?.id, error }, "Bot job failed");
     });
   } catch (error) {
+    setRedisStatus("degraded");
     app.log.warn({ error }, "Redis unavailable, worker startup skipped");
   }
 

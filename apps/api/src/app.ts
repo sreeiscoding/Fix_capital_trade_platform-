@@ -3,11 +3,13 @@ import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
+import { Prisma } from "@prisma/client";
 import { Server as SocketIOServer } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { env } from "./config/env.js";
 import { prisma } from "./lib/prisma.js";
 import { redis } from "./lib/redis.js";
+import { setRedisStatus } from "./lib/runtime-state.js";
 import { registerRoutes } from "./routes/index.js";
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string) {
@@ -17,6 +19,18 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
       setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
     })
   ]);
+}
+
+function isDatabaseUnavailableError(error: unknown) {
+  if (error instanceof Prisma.PrismaClientInitializationError) {
+    return true;
+  }
+
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message.includes("Authentication failed against database server") || error.message.includes("Can't reach database server");
 }
 
 export async function buildApp() {
@@ -55,9 +69,12 @@ export async function buildApp() {
     subscriber = redis.duplicate();
     subscriber.on("error", () => {
       app.log.warn("Socket.io Redis subscriber connection failed");
+      setRedisStatus("degraded");
     });
     io.adapter(createAdapter(redis, subscriber));
+    setRedisStatus("up");
   } catch (error) {
+    setRedisStatus("degraded");
     app.log.warn({ error }, "Redis unavailable, using default in-memory socket adapter");
   }
 
@@ -77,7 +94,7 @@ export async function buildApp() {
 
       socket.data.user = payload;
       return next();
-    } catch (error) {
+    } catch {
       return next(new Error("Unauthorized"));
     }
   });
@@ -93,6 +110,25 @@ export async function buildApp() {
   });
 
   app.decorate("io", io);
+
+  app.setErrorHandler((error, _request, reply) => {
+    if (isDatabaseUnavailableError(error)) {
+      reply.code(503).send({
+        ok: false,
+        code: "DATABASE_UNAVAILABLE",
+        message: "Database unavailable. Check DATABASE_URL and confirm your local Postgres credentials are correct."
+      });
+      return;
+    }
+
+    const statusCode = typeof (error as { statusCode?: number }).statusCode === "number" ? (error as { statusCode: number }).statusCode : 500;
+    const message = error instanceof Error ? error.message : "Internal server error";
+
+    reply.code(statusCode).send({
+      ok: false,
+      message
+    });
+  });
 
   app.addHook("onClose", async () => {
     await prisma.$disconnect().catch(() => undefined);
