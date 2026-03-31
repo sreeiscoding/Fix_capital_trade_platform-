@@ -23,13 +23,24 @@ type DerivTickMessage = {
 
 type DerivHistoryMessage = {
   msg_type?: string;
+  candles?: DerivCandle[];
   history?: {
+    candles?: DerivCandle[];
     prices?: Array<number | string>;
     times?: number[];
   };
   error?: {
     message?: string;
   };
+};
+
+type DerivCandle = {
+  epoch?: number;
+  open_time?: number;
+  open?: number | string;
+  high?: number | string;
+  low?: number | string;
+  close?: number | string;
 };
 
 type DerivActiveSymbol = {
@@ -69,6 +80,20 @@ export type MarketHistoryPoint = {
 export type MarketHistoryFeed = {
   source: "live" | "fallback";
   points: MarketHistoryPoint[];
+};
+
+export type MarketCandle = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+export type MarketCandleFeed = {
+  source: "live" | "fallback";
+  candles: MarketCandle[];
+  updatedAt: string;
 };
 
 const DEFAULT_MARKETS: readonly MarketQuoteConfig[] = [
@@ -124,6 +149,14 @@ const historyCache = new Map<
   {
     expiresAt: number;
     data: MarketHistoryFeed;
+  }
+>();
+
+const candleCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    data: MarketCandleFeed;
   }
 >();
 
@@ -217,6 +250,88 @@ function buildFallbackHistory(symbol: string, count: number) {
       value: Number((market.fallbackMid + wave + drift + pulse).toFixed(market.decimals))
     };
   });
+}
+
+function parseNumericValue(value: number | string | undefined) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeCandles(candles: DerivCandle[]) {
+  return candles
+    .map((candle) => {
+      const open = parseNumericValue(candle.open);
+      const high = parseNumericValue(candle.high);
+      const low = parseNumericValue(candle.low);
+      const close = parseNumericValue(candle.close);
+      const time = candle.epoch ?? candle.open_time;
+
+      if (open === null || high === null || low === null || close === null || typeof time !== "number") {
+        return null;
+      }
+
+      return {
+        time,
+        open,
+        high,
+        low,
+        close
+      } satisfies MarketCandle;
+    })
+    .filter((candle): candle is MarketCandle => candle !== null)
+    .sort((left, right) => left.time - right.time);
+}
+
+function buildCandlesFromPoints(points: MarketHistoryPoint[], granularity: number, count: number) {
+  const buckets = new Map<number, MarketCandle>();
+
+  for (const point of points) {
+    const candleEpoch = Math.floor(point.time / granularity) * granularity;
+    const existing = buckets.get(candleEpoch);
+
+    if (!existing) {
+      buckets.set(candleEpoch, {
+        time: candleEpoch,
+        open: point.value,
+        high: point.value,
+        low: point.value,
+        close: point.value
+      });
+      continue;
+    }
+
+    buckets.set(candleEpoch, {
+      ...existing,
+      high: Math.max(existing.high, point.value),
+      low: Math.min(existing.low, point.value),
+      close: point.value
+    });
+  }
+
+  return [...buckets.values()].sort((left, right) => left.time - right.time).slice(-count);
+}
+
+function getExpandedTickSampleCount(count: number, granularity: number) {
+  if (granularity <= 60) {
+    return Math.min(5000, count * 20);
+  }
+
+  if (granularity <= 300) {
+    return Math.min(5000, count * 12);
+  }
+
+  if (granularity <= 900) {
+    return Math.min(5000, count * 8);
+  }
+
+  return Math.min(5000, count * 6);
+}
+
+function getMinimumUsefulCandleCount(count: number) {
+  return Math.max(12, Math.floor(count * 0.2));
+}
+function buildFallbackCandles(symbol: string, count: number, granularity: number) {
+  return buildCandlesFromPoints(buildFallbackHistory(symbol, Math.max(count * 4, 180)), granularity, count);
 }
 
 async function fetchDerivTicks(markets: readonly MarketQuoteConfig[]) {
@@ -420,6 +535,96 @@ async function fetchDerivTickHistory(symbol: string, count: number) {
     });
   });
 }
+async function fetchDerivCandleHistory(symbol: string, count: number, granularity: number) {
+  return await new Promise<MarketCandle[]>((resolve, reject) => {
+    const connection = new WebSocket(`${env.DERIV_WS_URL}?app_id=${env.DERIV_APP_ID}`);
+    let settled = false;
+
+    const settle = (candles?: MarketCandle[], error?: Error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(candles ?? []);
+    };
+
+    const timeout = setTimeout(() => {
+      settle(undefined, new Error("Timed out while fetching market candles"));
+    }, 7000);
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      connection.removeAllListeners();
+      if (connection.readyState === WebSocket.OPEN || connection.readyState === WebSocket.CONNECTING) {
+        connection.close();
+      }
+    };
+
+    connection.on("open", () => {
+      connection.send(
+        JSON.stringify({
+          ticks_history: symbol,
+          adjust_start_time: 1,
+          end: "latest",
+          count,
+          style: "candles",
+          granularity
+        })
+      );
+    });
+
+    connection.on("message", (payload) => {
+      try {
+        const message = JSON.parse(String(payload)) as DerivHistoryMessage;
+
+        if (message.error) {
+          settle(undefined, new Error(message.error.message ?? "Failed to fetch market candles"));
+          return;
+        }
+
+        const candlePayload = message.candles ?? message.history?.candles;
+        if (candlePayload && candlePayload.length > 0) {
+          settle(normalizeCandles(candlePayload).slice(-count));
+          return;
+        }
+
+        if (message.msg_type !== "history" || !message.history?.prices || !message.history.times) {
+          return;
+        }
+
+        const points = message.history.times
+          .map((time, index) => {
+            const value = parseNumericValue(message.history?.prices?.[index]);
+            if (value === null) {
+              return null;
+            }
+
+            return {
+              time,
+              value
+            } satisfies MarketHistoryPoint;
+          })
+          .filter((point): point is MarketHistoryPoint => point !== null);
+
+        settle(buildCandlesFromPoints(points, granularity, count));
+      } catch (error) {
+        settle(undefined, error instanceof Error ? error : new Error("Failed to parse market candle payload"));
+      }
+    });
+
+    connection.on("error", (error) => {
+      settle(undefined, error instanceof Error ? error : new Error("Market candle connection failed"));
+    });
+  });
+}
 
 async function fetchDerivActiveSymbols() {
   return await new Promise<DerivActiveSymbol[]>((resolve, reject) => {
@@ -537,7 +742,10 @@ async function getExpandedWatchlistMarkets() {
 
     return markets;
   } catch {
-    return [...DEFAULT_MARKETS];
+    return [
+      ...DEFAULT_MARKETS,
+      ...OFFICIAL_VOLATILITY_MARKETS.filter((market) => !DEFAULT_MARKETS.some((entry) => entry.symbol === market.symbol))
+    ];
   }
 }
 
@@ -577,6 +785,54 @@ export async function getExpandedMarketWatchlist(): Promise<MarketQuoteFeed> {
   }
 }
 
+export async function getMarketCandles(symbol: string, count = 120, granularity = 60): Promise<MarketCandleFeed> {
+  const cacheKey = `${symbol}:${count}:${granularity}`;
+  const cached = candleCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  try {
+    let candles = await fetchDerivCandleHistory(symbol, count, granularity);
+
+    if (candles.length < getMinimumUsefulCandleCount(count)) {
+      const expandedTickCount = getExpandedTickSampleCount(count, granularity);
+      const expandedPoints = await fetchDerivTickHistory(symbol, expandedTickCount);
+      const rebuiltCandles = buildCandlesFromPoints(expandedPoints, granularity, count);
+
+      if (rebuiltCandles.length > candles.length) {
+        candles = rebuiltCandles;
+      }
+    }
+
+    const data: MarketCandleFeed = {
+      source: "live",
+      candles,
+      updatedAt: new Date((candles[candles.length - 1]?.time ?? Math.floor(Date.now() / 1000)) * 1000).toISOString()
+    };
+
+    candleCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + HISTORY_CACHE_TTL_MS
+    });
+
+    return data;
+  } catch {
+    const candles = buildFallbackCandles(symbol, count, granularity);
+    const data: MarketCandleFeed = {
+      source: "fallback",
+      candles,
+      updatedAt: new Date((candles[candles.length - 1]?.time ?? Math.floor(Date.now() / 1000)) * 1000).toISOString()
+    };
+
+    candleCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + HISTORY_CACHE_TTL_MS
+    });
+
+    return data;
+  }
+}
 export async function getMarketHistory(symbol: string, count = 120): Promise<MarketHistoryFeed> {
   const cacheKey = `${symbol}:${count}`;
   const cached = historyCache.get(cacheKey);

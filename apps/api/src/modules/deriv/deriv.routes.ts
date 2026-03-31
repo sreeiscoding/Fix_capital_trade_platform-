@@ -8,7 +8,7 @@ import {
   listDerivAccounts,
   unlinkDerivAccount
 } from "./deriv-oauth.service.js";
-import { getExpandedMarketWatchlist, getLiveMarketQuotes, getMarketHistory } from "./market-data.service.js";
+import { getExpandedMarketWatchlist, getLiveMarketQuotes, getMarketCandles, getMarketHistory } from "./market-data.service.js";
 
 export async function derivRoutes(app: FastifyInstance) {
   app.get("/market-quotes", async () => {
@@ -28,6 +28,18 @@ export async function derivRoutes(app: FastifyInstance) {
       .parse(request.query);
 
     return await getMarketHistory(query.symbol, query.count);
+  });
+
+  app.get("/market-candles", async (request) => {
+    const query = z
+      .object({
+        symbol: z.string().min(1),
+        count: z.coerce.number().int().min(20).max(300).default(120),
+        granularity: z.coerce.number().int().min(60).max(86400).default(60)
+      })
+      .parse(request.query);
+
+    return await getMarketCandles(query.symbol, query.count, query.granularity);
   });
 
   app.get("/accounts", { preHandler: [ensureAuth(app)] }, async (request) => {
