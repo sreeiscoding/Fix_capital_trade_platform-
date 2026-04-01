@@ -15,9 +15,9 @@
     "apps/api"
   ],
   "scripts": {
-    "dev": "concurrently -n web,api -c cyan,green \"npm run dev --workspace @astrotrade/web\" \"npm run dev --workspace @astrotrade/api\"",
-    "build": "npm run build --workspace @astrotrade/web && npm run build --workspace @astrotrade/api",
-    "lint": "npm run lint --workspace @astrotrade/web && npm run lint --workspace @astrotrade/api",
+    "dev": "concurrently -n web,api -c cyan,green \"npm run dev --workspace @fixcapital/web\" \"npm run dev --workspace @astrotrade/api\"",
+    "build": "npm run build --workspace @fixcapital/web && npm run build --workspace @astrotrade/api",
+    "lint": "npm run lint --workspace @fixcapital/web && npm run lint --workspace @astrotrade/api",
     "prisma:generate": "npm run prisma:generate --workspace @astrotrade/api",
     "postinstall": "node scripts/postinstall.mjs"
   },

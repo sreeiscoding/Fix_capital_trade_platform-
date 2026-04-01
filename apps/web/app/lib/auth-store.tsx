@@ -27,7 +27,7 @@ type AuthContextValue = {
   logout: () => void;
 };
 
-const STORAGE_KEY = "astrotrade.session";
+const STORAGE_KEY = "fixcapital.session";
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
