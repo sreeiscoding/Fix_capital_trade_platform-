@@ -34,6 +34,7 @@ export default function LoginPage() {
   const [pendingAction, setPendingAction] = useState<"signin" | "signup" | null>(null);
   const [showDemoGuide, setShowDemoGuide] = useState(false);
   const [guideError, setGuideError] = useState<string | null>(null);
+  const [signupHint, setSignupHint] = useState<string | null>(null);
 
   useEffect(() => {
     if (!ready) {
@@ -61,6 +62,7 @@ export default function LoginPage() {
     setPendingAction("signin");
     setError(null);
     setGuideError(null);
+    setSignupHint(null);
 
     try {
       const response = await apiRequest<{ url: string }>("/api/v1/auth/deriv/start", {
@@ -182,6 +184,11 @@ export default function LoginPage() {
           </div>
 
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
+          {signupHint && !showDemoGuide ? (
+            <div className="descriptive-copy rounded-2xl border border-accent/25 bg-accent/10 p-4 text-sm text-slate-200">
+              {signupHint}
+            </div>
+          ) : null}
 
           <div className="rounded-2xl border border-border/70 bg-card/50 p-4 text-sm text-slate-300">
             <p className="font-medium text-white">How Deriv signup works</p>
@@ -252,6 +259,11 @@ export default function LoginPage() {
             {guideError ? (
               <div className="descriptive-copy mt-5 rounded-2xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-red-300">
                 {guideError}
+              </div>
+            ) : null}
+            {signupHint && showDemoGuide ? (
+              <div className="descriptive-copy mt-5 rounded-2xl border border-accent/25 bg-accent/10 px-4 py-3 text-sm text-slate-200">
+                {signupHint}
               </div>
             ) : null}
 

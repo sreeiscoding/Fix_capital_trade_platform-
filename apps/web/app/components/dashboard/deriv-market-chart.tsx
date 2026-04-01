@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, CandlestickChart, ExternalLink, MoveHorizontal, RefreshCw, Settings2, ZoomIn, ZoomOut } from "lucide-react";
+import { Activity, ArrowRight, CandlestickChart, ChevronDown, ExternalLink, Minus, MoveHorizontal, PenTool, RefreshCw, Settings2, Slash, Square, Trash2, Type, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import {
   createChart,
   ColorType,
@@ -91,6 +91,19 @@ type TimeframeOption = {
 type IndicatorKey = "sma20" | "ema21" | "bb20";
 
 type IndicatorState = Record<IndicatorKey, boolean>;
+
+type DrawingTool = "none" | "trendLine" | "ray" | "horizontalLine" | "rectangle" | "fibRetracement" | "noteLabel";
+
+type DrawingAnchor = {
+  time: number;
+  price: number;
+};
+
+type ChartDrawing = {
+  id: string;
+  tool: Exclude<DrawingTool, "none">;
+  anchors: DrawingAnchor[];
+};
 
 const DERIV_PUBLIC_WS_URL = process.env.NEXT_PUBLIC_DERIV_WS_URL ?? "wss://ws.derivws.com/websockets/v3";
 const DERIV_PUBLIC_APP_ID = process.env.NEXT_PUBLIC_DERIV_APP_ID ?? "1089";
@@ -329,6 +342,18 @@ function getBackfillCount(granularity: number) {
   return 400;
 }
 
+function isTwoPointDrawingTool(tool: DrawingTool): tool is "trendLine" | "ray" | "rectangle" | "fibRetracement" {
+  return tool === "trendLine" || tool === "ray" || tool === "rectangle" || tool === "fibRetracement";
+}
+
+function createDrawingId() {
+  return `drawing_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function toEpochTime(value: Time | null | undefined) {
+  return typeof value === "number" ? value : null;
+}
+
 async function fetchDirectDerivCandles(symbol: string, granularity: number, count: number, end: number | "latest" = "latest") {
   return await new Promise<MarketCandleResponse>((resolve, reject) => {
     const socket = new window.WebSocket(`${DERIV_PUBLIC_WS_URL}?app_id=${DERIV_PUBLIC_APP_ID}`);
@@ -471,6 +496,37 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
   const [chartReady, setChartReady] = useState(false);
   const [chartError, setChartError] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string>("");
+  const [drawingTool, setDrawingTool] = useState<DrawingTool>("none");
+  const [drawings, setDrawings] = useState<ChartDrawing[]>([]);
+  const [pendingAnchor, setPendingAnchor] = useState<DrawingAnchor | null>(null);
+  const [previewAnchor, setPreviewAnchor] = useState<DrawingAnchor | null>(null);
+  const [viewportVersion, setViewportVersion] = useState(0);
+  const [showDrawingMenu, setShowDrawingMenu] = useState(false);
+  const drawingMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setDrawings([]);
+    setDrawingTool("none");
+    setPendingAnchor(null);
+    setPreviewAnchor(null);
+  }, [symbol]);
+
+  useEffect(() => {
+    if (!showDrawingMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!drawingMenuRef.current?.contains(event.target as Node)) {
+        setShowDrawingMenu(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [showDrawingMenu]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -581,6 +637,7 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
 
         if (nextWidth && nextHeight) {
           chart.applyOptions({ width: nextWidth, height: nextHeight });
+          setViewportVersion((current) => current + 1);
         }
       });
 
@@ -749,6 +806,7 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
     }
 
     candleSeriesRef.current.setData(candles);
+    setViewportVersion((current) => current + 1);
     if (candles.length > 0 && shouldFitContentRef.current) {
       const timeScale = chartRef.current?.timeScale();
       if (!timeScale) {
@@ -772,6 +830,8 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
 
     const timeScale = chart.timeScale();
     const handleVisibleRangeChange = async (range: { from: number; to: number } | null) => {
+      setViewportVersion((current) => current + 1);
+
       if (!range || range.from > 30 || isBackfillingRef.current || !hasMoreHistoryRef.current || earliestEpochRef.current === null) {
         return;
       }
@@ -879,6 +939,246 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
   const canZoomIn = barSpacing < 24;
   const sparklinePath = useMemo(() => buildSparklinePath(fallbackPoints, 900, 360), [fallbackPoints]);
   const activeIndicatorCount = useMemo(() => Object.values(indicators).filter(Boolean).length, [indicators]);
+
+  const drawingTools = [
+    { key: "trendLine" as const, label: "Trend line", icon: Slash, group: "Core" },
+    { key: "ray" as const, label: "Ray", icon: ArrowRight, group: "Core" },
+    { key: "horizontalLine" as const, label: "Horizontal", icon: Minus, group: "Core" },
+    { key: "rectangle" as const, label: "Rectangle", icon: Square, group: "Core" },
+    { key: "fibRetracement" as const, label: "Fib retracement", icon: PenTool, group: "Advanced" },
+    { key: "noteLabel" as const, label: "Note label", icon: Type, group: "Advanced" }
+  ];
+
+  const buildDrawingAnchor = (clientX: number, clientY: number) => {
+    const chart = chartRef.current;
+    const series = candleSeriesRef.current;
+    const container = containerRef.current;
+
+    if (!chart || !series || !container) {
+      return null;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    const time = toEpochTime(chart.timeScale().coordinateToTime(x));
+    const price = series.coordinateToPrice(y);
+
+    if (time === null || price === null) {
+      return null;
+    }
+
+    return { time, price } satisfies DrawingAnchor;
+  };
+
+  const clearPendingDrawing = () => {
+    setPendingAnchor(null);
+    setPreviewAnchor(null);
+  };
+
+  const handleSelectDrawingTool = (nextTool: DrawingTool) => {
+    clearPendingDrawing();
+    setDrawingTool((current) => (current === nextTool ? "none" : nextTool));
+    setShowDrawingMenu(false);
+  };
+
+  const handleChartPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (!pendingAnchor || !isTwoPointDrawingTool(drawingTool)) {
+      return;
+    }
+
+    const nextAnchor = buildDrawingAnchor(event.clientX, event.clientY);
+    if (!nextAnchor) {
+      return;
+    }
+
+    setPreviewAnchor(nextAnchor);
+  };
+
+  const handleChartClick = (event: React.MouseEvent<SVGSVGElement>) => {
+    if (drawingTool === "none") {
+      return;
+    }
+
+    const anchor = buildDrawingAnchor(event.clientX, event.clientY);
+    if (!anchor) {
+      return;
+    }
+
+    if (drawingTool === "horizontalLine" || drawingTool === "noteLabel") {
+      setDrawings((current) => [...current, { id: createDrawingId(), tool: drawingTool, anchors: [anchor] }]);
+      clearPendingDrawing();
+      return;
+    }
+
+    if (!pendingAnchor) {
+      setPendingAnchor(anchor);
+      setPreviewAnchor(anchor);
+      return;
+    }
+
+    setDrawings((current) => [...current, { id: createDrawingId(), tool: drawingTool, anchors: [pendingAnchor, anchor] }]);
+    clearPendingDrawing();
+  };
+
+  const removeLastDrawing = () => {
+    clearPendingDrawing();
+    setDrawings((current) => current.slice(0, -1));
+  };
+
+  const clearAllDrawings = () => {
+    clearPendingDrawing();
+    setDrawings([]);
+    setDrawingTool("none");
+  };
+
+  const drawingHint = drawingTool === "none"
+    ? "Open the drawing menu to mark trend lines, levels, zones, Fibonacci retracements, and note labels on the chart."
+    : pendingAnchor && isTwoPointDrawingTool(drawingTool)
+      ? "Click a second point on the chart to finish this drawing."
+      : drawingTool === "horizontalLine"
+        ? "Click once on the chart to place a horizontal level."
+        : drawingTool === "noteLabel"
+          ? "Click once on the chart to place a note label."
+          : "Click on the chart to begin drawing.";
+
+  const overlayWidth = containerRef.current?.clientWidth ?? 0;
+  const overlayHeight = containerRef.current?.clientHeight ?? 0;
+
+  const drawingMarkup = useMemo(() => {
+    const chart = chartRef.current;
+    const series = candleSeriesRef.current;
+
+    if (!chart || !series || overlayWidth === 0 || overlayHeight === 0) {
+      return [] as React.ReactNode[];
+    }
+
+    const allDrawings = [...drawings];
+    if (pendingAnchor && previewAnchor && isTwoPointDrawingTool(drawingTool)) {
+      allDrawings.push({
+        id: "preview",
+        tool: drawingTool,
+        anchors: [pendingAnchor, previewAnchor]
+      });
+    }
+
+    const projectAnchor = (anchor: DrawingAnchor) => {
+      const x = chart.timeScale().timeToCoordinate(anchor.time as Time);
+      const y = series.priceToCoordinate(anchor.price);
+
+      if (x === null || y === null) {
+        return null;
+      }
+
+      return { x, y };
+    };
+
+    return allDrawings.flatMap((drawing) => {
+      const isPreview = drawing.id === "preview";
+      const stroke = drawing.tool === "rectangle" ? "#60a5fa" : drawing.tool === "horizontalLine" ? "#fbbf24" : "#57d4a8";
+      const strokeDasharray = isPreview ? "6 4" : undefined;
+      const opacity = isPreview ? 0.75 : 1;
+
+      if (drawing.tool === "horizontalLine") {
+        const point = projectAnchor(drawing.anchors[0]);
+        if (!point) {
+          return [];
+        }
+
+        return [
+          <g key={drawing.id} opacity={opacity}>
+            <line x1={0} y1={point.y} x2={overlayWidth} y2={point.y} stroke={stroke} strokeWidth={2} strokeDasharray={strokeDasharray} />
+            <circle cx={point.x} cy={point.y} r={3.5} fill={stroke} />
+          </g>
+        ];
+      }
+
+      if (drawing.tool === "noteLabel") {
+        const point = projectAnchor(drawing.anchors[0]);
+        if (!point) {
+          return [];
+        }
+
+        return [
+          <g key={drawing.id} opacity={opacity}>
+            <circle cx={point.x} cy={point.y} r={4} fill="#fbbf24" />
+            <rect x={point.x + 8} y={point.y - 22} width={58} height={22} rx={11} fill="rgba(15, 23, 36, 0.94)" stroke="#fbbf24" strokeWidth={1.5} />
+            <text x={point.x + 37} y={point.y - 8} fill="#f8fafc" fontSize="10" textAnchor="middle" fontFamily="var(--font-secondary), monospace">
+              Note
+            </text>
+          </g>
+        ];
+      }
+
+      const start = projectAnchor(drawing.anchors[0]);
+      const end = projectAnchor(drawing.anchors[1]);
+      if (!start || !end) {
+        return [];
+      }
+
+      if (drawing.tool === "rectangle") {
+        const x = Math.min(start.x, end.x);
+        const y = Math.min(start.y, end.y);
+        const width = Math.abs(end.x - start.x);
+        const height = Math.abs(end.y - start.y);
+
+        return [
+          <g key={drawing.id} opacity={opacity}>
+            <rect x={x} y={y} width={width} height={height} fill="rgba(96, 165, 250, 0.08)" stroke={stroke} strokeWidth={2} strokeDasharray={strokeDasharray} rx={6} />
+          </g>
+        ];
+      }
+
+      if (drawing.tool === "fibRetracement") {
+        const left = Math.min(start.x, end.x);
+        const right = Math.max(start.x, end.x);
+        const top = start.y;
+        const bottom = end.y;
+        const ratios = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+
+        return [
+          <g key={drawing.id} opacity={opacity}>
+            {ratios.map((ratio) => {
+              const y = top + (bottom - top) * ratio;
+              return (
+                <g key={`${drawing.id}_${ratio}`}>
+                  <line x1={left} y1={y} x2={right} y2={y} stroke="#a78bfa" strokeWidth={1.5} strokeDasharray={strokeDasharray} />
+                  <text x={right + 6} y={y + 3} fill="#c4b5fd" fontSize="10" fontFamily="var(--font-secondary), monospace">
+                    {(ratio * 100).toFixed(ratio === 0 || ratio === 1 ? 0 : 1)}%
+                  </text>
+                </g>
+              );
+            })}
+            <circle cx={start.x} cy={start.y} r={3.5} fill="#a78bfa" />
+            <circle cx={end.x} cy={end.y} r={3.5} fill="#a78bfa" />
+          </g>
+        ];
+      }
+
+      if (drawing.tool === "ray") {
+        const deltaX = end.x - start.x;
+        const deltaY = end.y - start.y;
+        const targetX = deltaX >= 0 ? overlayWidth : 0;
+        const targetY = Math.abs(deltaX) < 0.5 ? end.y : start.y + (deltaY / deltaX) * (targetX - start.x);
+
+        return [
+          <g key={drawing.id} opacity={opacity}>
+            <line x1={start.x} y1={start.y} x2={targetX} y2={targetY} stroke={stroke} strokeWidth={2} strokeDasharray={strokeDasharray} />
+            <circle cx={start.x} cy={start.y} r={3.5} fill={stroke} />
+            <circle cx={end.x} cy={end.y} r={3.5} fill={stroke} opacity={0.8} />
+          </g>
+        ];
+      }
+
+      return [
+        <g key={drawing.id} opacity={opacity}>
+          <line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={stroke} strokeWidth={2} strokeDasharray={strokeDasharray} />
+          <circle cx={start.x} cy={start.y} r={3.5} fill={stroke} />
+          <circle cx={end.x} cy={end.y} r={3.5} fill={stroke} />
+        </g>
+      ];
+    });
+  }, [drawings, pendingAnchor, previewAnchor, drawingTool, overlayWidth, overlayHeight, viewportVersion]);
 
   const zoomChart = (direction: "in" | "out") => {
     setBarSpacing((current) => {
@@ -1011,6 +1311,100 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
         </div>
       </div>
 
+      <div className="mb-4 rounded-2xl border border-border/60 bg-card/40 px-4 py-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">Drawing tools</p>
+            <p className="descriptive-copy mt-2 text-xs text-slate-400">{drawingHint}</p>
+          </div>
+          <div ref={drawingMenuRef} className="relative self-start lg:self-auto">
+            <button
+              type="button"
+              onClick={() => setShowDrawingMenu((current) => !current)}
+              className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-card/70 px-3 py-1.5 font-secondary text-xs text-slate-300 transition hover:border-accent/30 hover:text-white"
+              aria-expanded={showDrawingMenu}
+              aria-pressed={showDrawingMenu}
+            >
+              <PenTool className="h-3.5 w-3.5" />
+              Drawings {drawings.length > 0 ? `(${drawings.length})` : ""}
+              <ChevronDown className={`h-3.5 w-3.5 transition ${showDrawingMenu ? "rotate-180" : "rotate-0"}`} />
+            </button>
+
+            {showDrawingMenu ? (
+              <div className="absolute right-0 z-20 mt-3 w-[min(90vw,22rem)] rounded-3xl border border-border/70 bg-[#0f1724] p-4 shadow-2xl">
+                <div className="space-y-4">
+                  {(["Core", "Advanced"] as const).map((group) => {
+                    const groupTools = drawingTools.filter((tool) => tool.group === group);
+                    return (
+                      <div key={group}>
+                        <p className="descriptive-copy text-[11px] uppercase tracking-[0.18em] text-slate-500">{group} tools</p>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          {group === "Core" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleSelectDrawingTool("none")}
+                              className={`inline-flex items-center gap-2 rounded-2xl px-3 py-2 font-secondary text-xs transition ${
+                                drawingTool === "none"
+                                  ? "bg-accent text-slate-950"
+                                  : "border border-border/70 bg-card/70 text-slate-300 hover:border-accent/30 hover:text-white"
+                              }`}
+                              aria-pressed={drawingTool === "none"}
+                            >
+                              <PenTool className="h-3.5 w-3.5" />
+                              Cursor
+                            </button>
+                          ) : null}
+                          {groupTools.map((tool) => {
+                            const Icon = tool.icon;
+                            return (
+                              <button
+                                key={tool.key}
+                                type="button"
+                                onClick={() => handleSelectDrawingTool(tool.key)}
+                                className={`inline-flex items-center gap-2 rounded-2xl px-3 py-2 font-secondary text-xs transition ${
+                                  drawingTool === tool.key
+                                    ? "bg-accent text-slate-950"
+                                    : "border border-border/70 bg-card/70 text-slate-300 hover:border-accent/30 hover:text-white"
+                                }`}
+                                aria-pressed={drawingTool === tool.key}
+                              >
+                                <Icon className="h-3.5 w-3.5" />
+                                {tool.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={removeLastDrawing}
+                    disabled={drawings.length === 0}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-border/70 bg-card/70 px-3 py-2 font-secondary text-xs text-slate-300 transition hover:border-accent/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Undo2 className="h-3.5 w-3.5" />
+                    Undo last
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearAllDrawings}
+                    disabled={drawings.length === 0 && !pendingAnchor}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-border/70 bg-card/70 px-3 py-2 font-secondary text-xs text-slate-300 transition hover:border-accent/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Clear all
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
       {showIndicatorPanel ? (
         <div className="mb-4 rounded-2xl border border-border/60 bg-card/40 p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1115,6 +1509,20 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
 
       <div className="relative h-[360px] overflow-hidden rounded-[1.5rem] border border-border/70 bg-slate-950/70 sm:h-[520px]">
         <div ref={containerRef} className={`h-full w-full ${chartError ? "hidden" : "block"}`} />
+
+        {!chartError && chartReady ? (
+          <svg
+            viewBox={`0 0 ${Math.max(overlayWidth, 1)} ${Math.max(overlayHeight, 1)}`}
+            className={`absolute inset-0 z-10 h-full w-full ${drawingTool === "none" ? "pointer-events-none" : "pointer-events-auto cursor-crosshair"}`}
+            preserveAspectRatio="none"
+            onMouseMove={handleChartPointerMove}
+            onClick={handleChartClick}
+            aria-label="Chart drawing overlay"
+          >
+            <rect x={0} y={0} width={Math.max(overlayWidth, 1)} height={Math.max(overlayHeight, 1)} fill="transparent" />
+            {drawingMarkup}
+          </svg>
+        ) : null}
 
         {chartError && fallbackPoints.length > 0 ? (
           <div className="absolute inset-0 p-4 sm:p-6">
