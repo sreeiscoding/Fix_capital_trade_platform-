@@ -33,6 +33,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<"signin" | "signup" | null>(null);
   const [showDemoGuide, setShowDemoGuide] = useState(false);
+  const [guideError, setGuideError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!ready) {
@@ -59,6 +60,7 @@ export default function LoginPage() {
   const startDerivSignIn = async () => {
     setPendingAction("signin");
     setError(null);
+    setGuideError(null);
 
     try {
       const response = await apiRequest<{ url: string }>("/api/v1/auth/deriv/start", {
@@ -67,7 +69,12 @@ export default function LoginPage() {
       });
       window.location.href = response.url;
     } catch (submissionError) {
-      setError(normalizeAuthError(submissionError));
+      const message = normalizeAuthError(submissionError);
+      if (showDemoGuide && environment === "demo") {
+        setGuideError(message);
+      } else {
+        setError(message);
+      }
       setPendingAction(null);
     }
   };
@@ -75,18 +82,25 @@ export default function LoginPage() {
   const startDerivSignup = async () => {
     setPendingAction("signup");
     setError(null);
+    setGuideError(null);
 
     try {
       const response = await apiRequest<{ url: string }>("/api/v1/auth/deriv/signup-url");
       window.location.href = response.url;
     } catch (submissionError) {
-      setError(normalizeAuthError(submissionError));
+      const message = normalizeAuthError(submissionError);
+      if (showDemoGuide && environment === "demo") {
+        setGuideError(message);
+      } else {
+        setError(message);
+      }
       setPendingAction(null);
     }
   };
 
   const handlePrimaryAction = async () => {
     if (environment === "demo") {
+      setGuideError(null);
       setShowDemoGuide(true);
       return;
     }
@@ -195,7 +209,10 @@ export default function LoginPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setShowDemoGuide(false)}
+                onClick={() => {
+                  setGuideError(null);
+                  setShowDemoGuide(false);
+                }}
                 className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-border/70 bg-card/70 text-slate-300 transition hover:border-accent/30 hover:text-white"
                 aria-label="Close demo guide"
               >
@@ -232,8 +249,23 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {guideError ? (
+              <div className="descriptive-copy mt-5 rounded-2xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-red-300">
+                {guideError}
+              </div>
+            ) : null}
+
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <Button type="button" variant="outline" className="w-full" onClick={() => setShowDemoGuide(false)} disabled={pendingAction !== null}>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setGuideError(null);
+                  setShowDemoGuide(false);
+                }}
+                disabled={pendingAction !== null}
+              >
                 Close
               </Button>
               <Button type="button" variant="outline" className="w-full" onClick={() => void startDerivSignup()} disabled={pendingAction !== null}>
@@ -245,6 +277,12 @@ export default function LoginPage() {
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
+
+            {pendingAction === "signin" ? (
+              <p className="descriptive-copy mt-3 text-center text-xs text-slate-400">
+                FixCapital is contacting the API and preparing your Deriv sign-in.
+              </p>
+            ) : null}
           </div>
         </div>
       ) : null}
