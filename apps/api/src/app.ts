@@ -33,13 +33,36 @@ function isDatabaseUnavailableError(error: unknown) {
   return error.message.includes("Authentication failed against database server") || error.message.includes("Can't reach database server");
 }
 
+function isAllowedOrigin(origin: string | undefined) {
+  if (!origin) {
+    return true;
+  }
+
+  if (origin === env.CLIENT_URL) {
+    return true;
+  }
+
+  if (env.NODE_ENV === "development") {
+    return /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+  }
+
+  return false;
+}
+
 export async function buildApp() {
   const app = Fastify({
     logger: true
   });
 
   await app.register(cors, {
-    origin: [env.CLIENT_URL],
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Origin not allowed by FixCapital API CORS policy"), false);
+    },
     credentials: true
   });
 
@@ -57,7 +80,14 @@ export async function buildApp() {
 
   const io = new SocketIOServer(app.server, {
     cors: {
-      origin: [env.CLIENT_URL],
+      origin(origin, callback) {
+        if (isAllowedOrigin(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error("Origin not allowed by FixCapital socket policy"), false);
+      },
       credentials: true
     }
   });

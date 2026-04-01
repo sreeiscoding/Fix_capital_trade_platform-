@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { createDerivAuthorizationUrl, createDerivSignupUrl } from "../deriv/deriv-oauth.service.js";
 import { registerUser, verifyUser } from "./auth.service.js";
 
 const registerSchema = z.object({
@@ -12,6 +13,10 @@ const registerSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8)
+});
+
+const derivStartSchema = z.object({
+  environment: z.enum(["demo", "real"]).default("demo")
 });
 
 type AuthPayload = NonNullable<FastifyRequest["authUser"]>;
@@ -37,6 +42,21 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({ user, token });
   });
 
+  app.post("/deriv/start", async (request) => {
+    const body = derivStartSchema.parse(request.body ?? {});
+    return {
+      url: await createDerivAuthorizationUrl({
+        environment: body.environment
+      })
+    };
+  });
+
+  app.get("/deriv/signup-url", async () => {
+    return {
+      url: createDerivSignupUrl()
+    };
+  });
+
   app.get("/me", { preHandler: [ensureAuth(app)] }, async (request) => {
     return { user: request.authUser };
   });
@@ -54,7 +74,7 @@ function ensureAuth(app: FastifyInstance) {
 
       const payload = await app.jwt.verify<AuthPayload>(token);
       request.authUser = payload;
-    } catch (error) {
+    } catch (_error) {
       return reply.code(401).send({ message: "Unauthorized" });
     }
   };

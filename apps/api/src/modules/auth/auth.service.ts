@@ -1,5 +1,15 @@
 ﻿import bcrypt from "bcryptjs";
+import type { KycStatus, SubscriptionTier, UserRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  subscriptionTier: SubscriptionTier;
+  kycStatus: KycStatus;
+};
 
 export async function registerUser(input: {
   email: string;
@@ -66,14 +76,7 @@ export async function seedDemoUser() {
   });
 }
 
-function sanitizeUser(user: {
-  id: string;
-  email: string;
-  name: string;
-  role: "USER" | "MASTER" | "ADMIN";
-  subscriptionTier: "FREE" | "PRO" | "VIP";
-  kycStatus: "PENDING" | "REVIEW" | "APPROVED" | "REJECTED";
-}) {
+export function sanitizeUser(user: AuthUser) {
   return {
     id: user.id,
     email: user.email,

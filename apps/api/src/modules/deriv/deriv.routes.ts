@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { env } from "../../config/env.js";
+import { prisma } from "../../lib/prisma.js";
 import { ensureAuth } from "../auth/auth.routes.js";
 import {
   completeDerivOAuthCallback,
@@ -9,6 +10,10 @@ import {
   unlinkDerivAccount
 } from "./deriv-oauth.service.js";
 import { getExpandedMarketWatchlist, getLiveMarketQuotes, getMarketCandles, getMarketHistory } from "./market-data.service.js";
+
+function encodeSessionFragment(payload: { token: string; user: unknown }) {
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
 
 export async function derivRoutes(app: FastifyInstance) {
   app.get("/market-quotes", async () => {
@@ -71,12 +76,29 @@ export async function derivRoutes(app: FastifyInstance) {
       })
       .parse(request.query);
 
+    const oauthState = await prisma.oAuthState.findUnique({
+      where: { state: query.state },
+      include: { user: true }
+    });
+
     try {
-      await completeDerivOAuthCallback(query);
+      const result = await completeDerivOAuthCallback(query);
+
+      if (result.isPlatformAuth) {
+        const token = app.jwt.sign(result.user, { expiresIn: "7d" });
+        const redirectUrl = new URL("/auth/deriv/callback", env.CLIENT_URL);
+        redirectUrl.hash = new URLSearchParams({
+          session: encodeSessionFragment({ token, user: result.user }),
+          deriv: "connected"
+        }).toString();
+        return reply.redirect(redirectUrl.toString());
+      }
+
       const redirectUrl = new URL("/dashboard?deriv=connected", env.CLIENT_URL);
       return reply.redirect(redirectUrl.toString());
     } catch {
-      const redirectUrl = new URL("/dashboard?deriv=error", env.CLIENT_URL);
+      const startedAsPlatformAuth = oauthState?.user?.email.endsWith("@auth.fixcapital.local") ?? false;
+      const redirectUrl = new URL(startedAsPlatformAuth ? "/auth/login?deriv=error" : "/dashboard?deriv=error", env.CLIENT_URL);
       return reply.redirect(redirectUrl.toString());
     }
   });

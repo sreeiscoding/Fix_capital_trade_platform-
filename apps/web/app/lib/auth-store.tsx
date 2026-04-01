@@ -23,6 +23,7 @@ type AuthContextValue = {
     name: string;
     wantsToBeMaster?: boolean;
   }) => Promise<void>;
+  setSession: (session: { token: string; user: User }) => void;
   logout: () => void;
 };
 
@@ -80,6 +81,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     persist(response.token, response.user);
   };
 
+  const setSession = (session: { token: string; user: User }) => {
+    persist(session.token, session.user);
+  };
+
   const logout = () => {
     setToken(null);
     setUser(null);
@@ -87,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const value = useMemo(
-    () => ({ token, user, ready, login, register, logout }),
+    () => ({ token, user, ready, login, register, setSession, logout }),
     [token, user, ready]
   );
 

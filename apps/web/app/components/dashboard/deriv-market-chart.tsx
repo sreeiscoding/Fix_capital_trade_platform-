@@ -11,7 +11,6 @@ import {
   type Time
 } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiRequest } from "@/lib/api";
 
 type MarketHistoryPoint = {
   time: number;
@@ -107,6 +106,7 @@ const DEFAULT_INDICATORS: IndicatorState = {
   ema21: false,
   bb20: false
 };
+const MAX_STORED_CANDLES = 6000;
 
 function toChartCandles(candles: MarketCandle[]) {
   return candles
@@ -137,6 +137,7 @@ function buildSparklinePath(points: MarketHistoryPoint[], width: number, height:
     })
     .join(" ");
 }
+
 
 function parseNumericValue(value: number | string | undefined) {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -171,121 +172,18 @@ function buildCandlesFromTickHistory(points: MarketHistoryPoint[], granularity: 
 
   return [...buckets.values()].sort((left, right) => left.time - right.time);
 }
+function mergeCandles(older: CandlestickData<Time>[], newer: CandlestickData<Time>[]) {
+  const merged = new Map<number, CandlestickData<Time>>();
 
-async function fetchDirectDerivCandles(symbol: string, granularity: number, count: number) {
-  return await new Promise<MarketCandleResponse>((resolve, reject) => {
-    const socket = new window.WebSocket(`${DERIV_PUBLIC_WS_URL}?app_id=${DERIV_PUBLIC_APP_ID}`);
-    let settled = false;
+  for (const candle of older) {
+    merged.set(Number(candle.time), candle);
+  }
 
-    const cleanup = () => {
-      socket.onopen = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      socket.onclose = null;
-      if (socket.readyState === window.WebSocket.OPEN || socket.readyState === window.WebSocket.CONNECTING) {
-        socket.close();
-      }
-    };
+  for (const candle of newer) {
+    merged.set(Number(candle.time), candle);
+  }
 
-    const settle = (value?: MarketCandleResponse, error?: Error) => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      window.clearTimeout(timeout);
-      cleanup();
-
-      if (error) {
-        reject(error);
-        return;
-      }
-
-      resolve(value ?? { source: "fallback", candles: [], updatedAt: new Date().toISOString() });
-    };
-
-    const timeout = window.setTimeout(() => {
-      settle(undefined, new Error("Timed out while fetching direct Deriv candles"));
-    }, 7000);
-
-    socket.onopen = () => {
-      socket.send(
-        JSON.stringify({
-          ticks_history: symbol,
-          adjust_start_time: 1,
-          end: "latest",
-          count,
-          style: "candles",
-          granularity
-        })
-      );
-    };
-
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(String(event.data)) as DerivHistoryMessage;
-
-        if (message.error) {
-          settle(undefined, new Error(message.error.message ?? "Failed to fetch direct Deriv candles"));
-          return;
-        }
-
-        const candlePayload = message.candles ?? message.history?.candles;
-        if (candlePayload && candlePayload.length > 0) {
-          const candles = candlePayload
-            .map((candle) => {
-              const open = parseNumericValue(candle.open);
-              const high = parseNumericValue(candle.high);
-              const low = parseNumericValue(candle.low);
-              const close = parseNumericValue(candle.close);
-              const time = candle.epoch;
-
-              if (open === null || high === null || low === null || close === null || typeof time !== "number") {
-                return null;
-              }
-
-              return { time, open, high, low, close } satisfies MarketCandle;
-            })
-            .filter((candle): candle is MarketCandle => candle !== null)
-            .sort((left, right) => left.time - right.time)
-            .slice(-count);
-
-          settle({
-            source: "live",
-            candles,
-            updatedAt: new Date((candles[candles.length - 1]?.time ?? Math.floor(Date.now() / 1000)) * 1000).toISOString()
-          });
-          return;
-        }
-
-        if (message.history?.prices && message.history.times) {
-          const points = message.history.times
-            .map((time, index) => {
-              const value = parseNumericValue(message.history?.prices?.[index]);
-              if (value === null) {
-                return null;
-              }
-
-              return { time, value } satisfies MarketHistoryPoint;
-            })
-            .filter((point): point is MarketHistoryPoint => point !== null);
-
-          const candles = buildCandlesFromTickHistory(points, granularity).slice(-count);
-          settle({
-            source: "live",
-            candles,
-            updatedAt: new Date((candles[candles.length - 1]?.time ?? Math.floor(Date.now() / 1000)) * 1000).toISOString()
-          });
-        }
-      } catch (error) {
-        settle(undefined, error instanceof Error ? error : new Error("Failed to parse direct Deriv candles"));
-      }
-    };
-
-    socket.onerror = () => {
-      settle(undefined, new Error("Direct Deriv candle connection failed"));
-    };
-  });
+  return [...merged.values()].sort((left, right) => Number(left.time) - Number(right.time));
 }
 function inferSpread(symbol: string, pipSize: number) {
   const pipUnit = 10 ** -pipSize;
@@ -301,7 +199,7 @@ function upsertTickIntoCandles(
   current: CandlestickData<Time>[],
   point: MarketHistoryPoint,
   granularity: number,
-  count: number
+  maxCount: number
 ) {
   const candleEpoch = Math.floor(point.time / granularity) * granularity;
   const next = [...current];
@@ -325,7 +223,7 @@ function upsertTickIntoCandles(
     });
   }
 
-  return next.sort((left, right) => Number(left.time) - Number(right.time)).slice(-count);
+  return next.sort((left, right) => Number(left.time) - Number(right.time)).slice(-maxCount);
 }
 
 function computeSma(candles: CandlestickData<Time>[], period: number) {
@@ -381,22 +279,170 @@ function computeBollingerBands(candles: CandlestickData<Time>[], period: number,
 
 function getChartDescription(symbol: string, label: string) {
   if (symbol.startsWith("frx")) {
-    return `This forex chart loads ${label} candle history first, then keeps the view fresh with live price updates so you can read structure, momentum, and overlays without waiting on a blank panel.`;
+    return `This forex chart now opens with a deeper ${label} history from Deriv, then keeps extending with live price updates so the view feels closer to a real terminal chart.`;
   }
 
   if (symbol.includes("XAU")) {
-    return `This metal chart loads ${label} candle history first, then keeps the view fresh with live price updates so you can track reaction speed, trend pressure, and indicator context in one place.`;
+    return `This metal chart now opens with a deeper ${label} history from Deriv, then keeps extending with live price updates so you can read trend pressure and volatility with fuller context.`;
   }
 
   if (/STEP/i.test(symbol) || /step index/i.test(label)) {
-    return `This step index chart loads Deriv candle history first, then stays updated with live ticks so you can monitor ladder-like movement, timing, and indicator alignment without losing your place.`;
+    return "This step index chart now opens with a deeper Deriv history and keeps extending with live ticks so you are not limited to a shallow snapshot.";
   }
 
   if (symbol.startsWith("R_") || /HZ\d+V$/i.test(symbol) || /volatility/i.test(label)) {
-    return `This synthetic index chart loads Deriv candle history first, then stays fresh with live ticks so you can follow volatility, structure, and indicator overlays without staring at an empty panel.`;
+    return "This synthetic index chart now opens with a deeper Deriv history and keeps extending with live ticks so you are not limited to a shallow snapshot.";
   }
 
-  return `This market chart loads ${label} candle history first, then keeps the view fresh with live price updates so you can follow structure, trend, and indicator context without waiting on an empty panel.`;
+  return `This market chart now opens with a deeper ${label} history from Deriv, then keeps extending with live updates so the view feels closer to a real terminal chart.`;
+}
+
+function getInitialHistoryCount(granularity: number) {
+  if (granularity <= 60) {
+    return 1500;
+  }
+
+  if (granularity <= 300) {
+    return 1200;
+  }
+
+  if (granularity <= 900) {
+    return 900;
+  }
+
+  return 600;
+}
+
+function getBackfillCount(granularity: number) {
+  if (granularity <= 60) {
+    return 1000;
+  }
+
+  if (granularity <= 300) {
+    return 800;
+  }
+
+  if (granularity <= 900) {
+    return 600;
+  }
+
+  return 400;
+}
+
+async function fetchDirectDerivCandles(symbol: string, granularity: number, count: number, end: number | "latest" = "latest") {
+  return await new Promise<MarketCandleResponse>((resolve, reject) => {
+    const socket = new window.WebSocket(`${DERIV_PUBLIC_WS_URL}?app_id=${DERIV_PUBLIC_APP_ID}`);
+    let settled = false;
+
+    const cleanup = () => {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      if (socket.readyState === window.WebSocket.OPEN || socket.readyState === window.WebSocket.CONNECTING) {
+        socket.close();
+      }
+    };
+
+    const settle = (value?: MarketCandleResponse, error?: Error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      window.clearTimeout(timeout);
+      cleanup();
+
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(value ?? { source: "fallback", candles: [], updatedAt: new Date().toISOString() });
+    };
+
+    const timeout = window.setTimeout(() => {
+      settle(undefined, new Error("Timed out while fetching Deriv candles"));
+    }, 8000);
+
+    socket.onopen = () => {
+      socket.send(
+        JSON.stringify({
+          ticks_history: symbol,
+          adjust_start_time: 1,
+          end,
+          count,
+          style: "candles",
+          granularity
+        })
+      );
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(String(event.data)) as DerivHistoryMessage;
+
+        if (message.error) {
+          settle(undefined, new Error(message.error.message ?? "Failed to fetch Deriv candles"));
+          return;
+        }
+
+        const candlePayload = message.candles ?? message.history?.candles;
+        if (candlePayload && candlePayload.length > 0) {
+          const candles = candlePayload
+            .map((candle) => {
+              const open = parseNumericValue(candle.open);
+              const high = parseNumericValue(candle.high);
+              const low = parseNumericValue(candle.low);
+              const close = parseNumericValue(candle.close);
+              const time = candle.epoch;
+
+              if (open === null || high === null || low === null || close === null || typeof time !== "number") {
+                return null;
+              }
+
+              return { time, open, high, low, close } satisfies MarketCandle;
+            })
+            .filter((candle): candle is MarketCandle => candle !== null)
+            .sort((left, right) => left.time - right.time)
+            .slice(-count);
+
+          settle({
+            source: "live",
+            candles,
+            updatedAt: new Date((candles[candles.length - 1]?.time ?? Math.floor(Date.now() / 1000)) * 1000).toISOString()
+          });
+          return;
+        }
+
+        if (message.history?.prices && message.history.times) {
+          const points = message.history.times
+            .map((time, index) => {
+              const value = parseNumericValue(message.history?.prices?.[index]);
+              if (value === null) {
+                return null;
+              }
+
+              return { time, value } satisfies MarketHistoryPoint;
+            })
+            .filter((point): point is MarketHistoryPoint => point !== null);
+
+          const candles = buildCandlesFromTickHistory(points, granularity).slice(-count);
+          settle({
+            source: "live",
+            candles,
+            updatedAt: new Date((candles[candles.length - 1]?.time ?? Math.floor(Date.now() / 1000)) * 1000).toISOString()
+          });
+        }
+      } catch (error) {
+        settle(undefined, error instanceof Error ? error : new Error("Failed to parse Deriv candle history"));
+      }
+    };
+
+    socket.onerror = () => {
+      settle(undefined, new Error("Direct Deriv candle connection failed"));
+    };
+  });
 }
 
 export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketChartProps) {
@@ -409,6 +455,9 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
   const bollingerMiddleRef = useRef<ISeriesApi<"Line"> | null>(null);
   const bollingerLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
   const shouldFitContentRef = useRef(true);
+  const hasMoreHistoryRef = useRef(true);
+  const isBackfillingRef = useRef(false);
+  const earliestEpochRef = useRef<number | null>(null);
   const [timeframe, setTimeframe] = useState<TimeframeOption>(TIMEFRAMES[0]);
   const [barSpacing, setBarSpacing] = useState(9);
   const [crosshairEnabled, setCrosshairEnabled] = useState(true);
@@ -418,6 +467,7 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
   const [fallbackPoints, setFallbackPoints] = useState<MarketHistoryPoint[]>([]);
   const [status, setStatus] = useState<"loading" | "live" | "fallback">("loading");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isBackfilling, setIsBackfilling] = useState(false);
   const [chartReady, setChartReady] = useState(false);
   const [chartError, setChartError] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string>("");
@@ -584,9 +634,14 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
     let active = true;
     let quoteSocket: WebSocket | null = null;
     shouldFitContentRef.current = true;
+    hasMoreHistoryRef.current = true;
+    isBackfillingRef.current = false;
+    earliestEpochRef.current = null;
 
     const applyCandleResponse = (response: MarketCandleResponse) => {
       const nextCandles = toChartCandles(response.candles);
+      earliestEpochRef.current = nextCandles.length > 0 ? Number(nextCandles[0].time) : null;
+      hasMoreHistoryRef.current = nextCandles.length > 0;
       setCandles(nextCandles);
       setFallbackPoints(response.candles.map((candle) => ({ time: candle.time, value: candle.close })));
       setStatus(response.source === "live" ? "live" : "fallback");
@@ -595,12 +650,10 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
 
     const loadCandles = async () => {
       setIsRefreshing(true);
+      const requestedCount = getInitialHistoryCount(timeframe.granularity);
 
       try {
-        const response = await apiRequest<MarketCandleResponse>(
-          `/api/v1/deriv/market-candles?symbol=${encodeURIComponent(symbol)}&count=${timeframe.count}&granularity=${timeframe.granularity}`
-        );
-
+        const response = await fetchDirectDerivCandles(symbol, timeframe.granularity, requestedCount);
         if (!active) {
           return;
         }
@@ -611,20 +664,7 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
           return;
         }
 
-        try {
-          const response = await fetchDirectDerivCandles(symbol, timeframe.granularity, timeframe.count);
-          if (!active) {
-            return;
-          }
-
-          applyCandleResponse(response);
-        } catch {
-          if (!active) {
-            return;
-          }
-
-          setStatus((current) => (current === "live" ? current : "fallback"));
-        }
+        setStatus((current) => (current === "live" ? current : "fallback"));
       } finally {
         if (active) {
           setIsRefreshing(false);
@@ -671,8 +711,8 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
 
           setStatus("live");
           setLastUpdatedAt(new Date(point.time * 1000).toISOString());
-          setCandles((current) => upsertTickIntoCandles(current, point, timeframe.granularity, timeframe.count));
-          setFallbackPoints((current) => [...current.slice(-239), point]);
+          setCandles((current) => upsertTickIntoCandles(current, point, timeframe.granularity, MAX_STORED_CANDLES));
+          setFallbackPoints((current) => [...current.slice(-(MAX_STORED_CANDLES - 1)), point]);
 
           onQuoteUpdate?.({
             ask: ask.toFixed(Math.max(pipSize, 2)),
@@ -715,18 +755,86 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
         return;
       }
 
-      if (candles.length < 8) {
-        timeScale.setVisibleLogicalRange({
-          from: -2,
-          to: Math.max(candles.length + 3, 10)
-        });
-      } else {
-        timeScale.fitContent();
-      }
-
+      const visibleBars = Math.min(Math.max(90, Math.floor(candles.length * 0.22)), 180);
+      timeScale.setVisibleLogicalRange({
+        from: Math.max(candles.length - visibleBars, 0),
+        to: candles.length + 8
+      });
       shouldFitContentRef.current = false;
     }
   }, [candles]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+
+    const timeScale = chart.timeScale();
+    const handleVisibleRangeChange = async (range: { from: number; to: number } | null) => {
+      if (!range || range.from > 30 || isBackfillingRef.current || !hasMoreHistoryRef.current || earliestEpochRef.current === null) {
+        return;
+      }
+
+      isBackfillingRef.current = true;
+      setIsBackfilling(true);
+      const previousRange = timeScale.getVisibleLogicalRange();
+
+      try {
+        const response = await fetchDirectDerivCandles(
+          symbol,
+          timeframe.granularity,
+          getBackfillCount(timeframe.granularity),
+          Math.max(earliestEpochRef.current - 1, 0)
+        );
+
+        if (response.candles.length === 0) {
+          hasMoreHistoryRef.current = false;
+          return;
+        }
+
+        const olderCandles = toChartCandles(response.candles);
+        earliestEpochRef.current = Number(olderCandles[0]?.time ?? earliestEpochRef.current);
+
+        let added = 0;
+        setCandles((current) => {
+          const merged = mergeCandles(olderCandles, current);
+          added = Math.max(merged.length - current.length, 0);
+          return merged;
+        });
+        setFallbackPoints((current) => {
+          const merged = new Map<number, MarketHistoryPoint>();
+          for (const point of response.candles.map((candle) => ({ time: candle.time, value: candle.close }))) {
+            merged.set(point.time, point);
+          }
+          for (const point of current) {
+            merged.set(point.time, point);
+          }
+          return [...merged.values()].sort((left, right) => left.time - right.time);
+        });
+
+        window.requestAnimationFrame(() => {
+          const nextRange = timeScale.getVisibleLogicalRange() ?? previousRange;
+          if (nextRange && added > 0) {
+            timeScale.setVisibleLogicalRange({
+              from: nextRange.from + added,
+              to: nextRange.to + added
+            });
+          }
+        });
+      } catch {
+        hasMoreHistoryRef.current = false;
+      } finally {
+        isBackfillingRef.current = false;
+        setIsBackfilling(false);
+      }
+    };
+
+    timeScale.subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
+    return () => {
+      timeScale.unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
+    };
+  }, [symbol, timeframe.granularity]);
 
   useEffect(() => {
     const smaSeries = smaSeriesRef.current;
@@ -981,7 +1089,7 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
             <MoveHorizontal className="h-3.5 w-3.5 text-accent" />
             Drag to pan
           </div>
-          <div className="descriptive-copy text-xs text-slate-400">Use the mouse wheel or pinch gesture to scale smoothly without resetting your view.</div>
+          <div className="descriptive-copy text-xs text-slate-400">Use the mouse wheel or pinch gesture to scale smoothly. Pan left and the chart will pull in older Deriv history.</div>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <button
@@ -1028,7 +1136,7 @@ export function DerivMarketChart({ symbol, label, onQuoteUpdate }: DerivMarketCh
             <div className="space-y-3">
               <div className="mx-auto h-10 w-10 animate-pulse rounded-full bg-accent/15" />
               <p className="text-sm font-medium text-white">Preparing Deriv chart</p>
-              <p className="descriptive-copy text-xs text-slate-400">Loading candle history for {label} on the selected timeframe.</p>
+              <p className="descriptive-copy text-xs text-slate-400">Loading deeper Deriv candle history for {label} and preparing the live stream.</p>
             </div>
           </div>
         ) : null}

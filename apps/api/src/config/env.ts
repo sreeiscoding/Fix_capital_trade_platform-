@@ -37,7 +37,7 @@ const envSchema = z.object({
   DERIV_AUTH_BASE_URL: z.string().url().default("https://auth.deriv.com"),
   DERIV_WS_URL: z.string().url().default("wss://ws.derivws.com/websockets/v3"),
   DERIV_AFFILIATE_TOKEN: z.string().optional(),
-  DERIV_UTM_CAMPAIGN: z.string().default("astrotrade"),
+  DERIV_UTM_CAMPAIGN: z.string().default("fixcapital"),
   DERIV_DEFAULT_SCOPE: z.string().default("openid trade payments admin"),
   DERIV_ENVIRONMENT: z.enum(["demo", "real"]).default("demo"),
   STRIPE_SECRET_KEY: z.string().optional(),
